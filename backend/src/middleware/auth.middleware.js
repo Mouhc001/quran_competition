@@ -12,38 +12,64 @@ exports.authenticateJudge = async (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'votre_secret_jwt');
     
-    // Vérifier si le jury existe et est actif
+    console.log('🔐 Token décodé:', decoded);
+    
+    // CORRECTION : Utilisez decoded.id au lieu de decoded.judgeId
     const judgeResult = await query(
       'SELECT * FROM judges WHERE id = $1',
-      [decoded.judgeId]
+      [decoded.id] // ← CHANGER ICI
     );
     
-    if (judgeResult.rows.length === 0 || !judgeResult.rows[0].is_active) {
+    if (judgeResult.rows.length === 0) {
+      console.log('❌ Jury non trouvé dans la base');
       return res.status(401).json({
         success: false,
-        message: 'Jury non autorisé ou désactivé'
+        message: 'Jury non autorisé'
+      });
+    }
+    
+    const judge = judgeResult.rows[0];
+    
+    if (!judge.is_active) {
+      console.log('❌ Jury désactivé');
+      return res.status(401).json({
+        success: false,
+        message: 'Compte jury désactivé'
       });
     }
 
     req.user = {
-      id: decoded.judgeId,
+      id: decoded.id,
       code: decoded.code,
+      name: decoded.name,
       type: 'judge'
     };
     
-    // Mettre à jour le last_login
-    await query(
-      'UPDATE judges SET last_login = CURRENT_TIMESTAMP WHERE id = $1',
-      [decoded.judgeId]
-    );
+    console.log('✅ Jury authentifié:', req.user);
     
     next();
   } catch (error) {
+    console.error('❌ Erreur authentification jury:', error);
+    
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({
+        success: false,
+        message: 'Token invalide'
+      });
+    }
+    
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({
+        success: false,
+        message: 'Token expiré'
+      });
+    }
+    
     return res.status(401).json({
       success: false,
-      message: 'Token invalide ou expiré'
+      message: 'Erreur d\'authentification'
     });
   }
 };

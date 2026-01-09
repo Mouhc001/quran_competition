@@ -70,7 +70,7 @@ const authenticateJudge = async (req, res, next) => {
 
 // POST /api/scores/candidate/:candidateId/round/:roundId - Soumettre les scores
 router.post('/candidate/:candidateId/round/:roundId', 
-  //authenticateJudge, 
+  authenticateJudge, 
   scoreController.submitScore
 );
 

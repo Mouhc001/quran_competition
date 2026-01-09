@@ -143,6 +143,216 @@ class Round {
     `);
     return result.rows[0] || null;
   }
+
+
+  // Dans Round.model.js, modifiez findNextRound :
+static async findNextRound(currentRoundId) {
+  try {
+    console.log('🔍 [findNextRound] Début - ID tour actuel:', currentRoundId);
+    
+    // Récupérer l'order_index du tour actuel
+    const currentRound = await this.findById(currentRoundId);
+    
+    if (!currentRound) {
+      console.log('❌ [findNextRound] Tour actuel non trouvé');
+      throw new Error('Tour actuel non trouvé');
+    }
+    
+    console.log('✅ [findNextRound] Tour actuel trouvé:', {
+      id: currentRound.id,
+      name: currentRound.name,
+      order_index: currentRound.order_index
+    });
+    
+    // Trouver le tour suivant (order_index + 1)
+    console.log('🔍 [findNextRound] Recherche tour avec order_index:', currentRound.order_index + 1);
+    
+    const result = await pool.query(
+      `SELECT * FROM rounds 
+       WHERE order_index = $1 
+       ORDER BY order_index ASC 
+       LIMIT 1`,
+      [currentRound.order_index + 1]
+    );
+    
+    console.log('📊 [findNextRound] Résultat requête:', {
+      rowsCount: result.rows.length,
+      foundTour: result.rows[0] ? {
+        id: result.rows[0].id,
+        name: result.rows[0].name,
+        order_index: result.rows[0].order_index
+      } : null
+    });
+    
+    // DEBUG: Afficher tous les tours
+    const allRounds = await pool.query('SELECT id, name, order_index FROM rounds ORDER BY order_index');
+    console.log('📋 [findNextRound] Tous les tours:', allRounds.rows);
+    
+    return result.rows[0] || null;
+  } catch (error) {
+    console.error('❌ [findNextRound] Erreur:', error);
+    throw error;
+  }
 }
 
+  // Activer le tour suivant
+  static async activateNextRound(currentRoundId) {
+    try {
+      // Désactiver tous les tours
+      await pool.query('UPDATE rounds SET is_active = false');
+      
+      // Activer le prochain tour
+      const nextRound = await this.findNextRound(currentRoundId);
+      
+      if (nextRound) {
+        await pool.query(
+          'UPDATE rounds SET is_active = true WHERE id = $1',
+          [nextRound.id]
+        );
+      }
+      
+      return nextRound;
+    } catch (error) {
+      console.error('Erreur activateNextRound:', error);
+      throw error;
+    }
+  }
+
+  // Obtenir tous les tours après un certain tour
+  static async getRoundsAfter(currentRoundId) {
+    try {
+      const currentRound = await this.findById(currentRoundId);
+      
+      const result = await pool.query(
+        `SELECT * FROM rounds 
+         WHERE order_index > $1 
+         ORDER BY order_index ASC`,
+        [currentRound.order_index]
+      );
+      
+      return result.rows;
+    } catch (error) {
+      console.error('Erreur getRoundsAfter:', error);
+      throw error;
+    }
+  }
+
+  // Vérifier si un tour a des candidats actifs
+  static async hasActiveCandidates(roundId) {
+    try {
+      const result = await pool.query(
+        `SELECT COUNT(*) FROM candidates 
+         WHERE round_id = $1 AND status = 'active'`,
+        [roundId]
+      );
+      
+      return parseInt(result.rows[0].count) > 0;
+    } catch (error) {
+      console.error('Erreur hasActiveCandidates:', error);
+      throw error;
+    }
+  }
+
+  // Obtenir les statistiques du tour
+  static async getRoundStats(roundId) {
+    try {
+      const result = await pool.query(`
+        SELECT 
+          -- Total candidats
+          COUNT(c.id) as total_candidates,
+          -- Candidats notés
+          COUNT(DISTINCT s.candidate_id) as scored_candidates,
+          -- Candidats qualifiés
+          SUM(CASE WHEN c.status = 'qualified' THEN 1 ELSE 0 END) as qualified_candidates,
+          -- Candidats actifs
+          SUM(CASE WHEN c.status = 'active' THEN 1 ELSE 0 END) as active_candidates,
+          -- Moyenne des scores
+          COALESCE(ROUND(AVG(s.total_score), 2), 0) as average_score
+        FROM candidates c
+        LEFT JOIN scores s ON c.id = s.candidate_id AND s.round_id = $1
+        WHERE c.round_id = $1
+      `, [roundId]);
+      
+      return result.rows[0];
+    } catch (error) {
+      console.error('Erreur getRoundStats:', error);
+      throw error;
+    }
+  }
+
+static async findNextRound(currentRoundId) {
+  try {
+    // Récupérer l'order_index du tour actuel
+    const currentRound = await this.findById(currentRoundId);
+    if (!currentRound) {
+      return null;
+    }
+
+    // Trouver le tour avec l'order_index suivant
+    const query = `
+      SELECT * FROM rounds 
+      WHERE order_index = $1 
+      ORDER BY order_index ASC 
+      LIMIT 1
+    `;
+    const values = [currentRound.order_index + 1];
+    
+    const result = await pool.query(query, values);
+    return result.rows[0];
+  } catch (error) {
+    console.error('Erreur recherche prochain tour:', error);
+    throw error;
+  }
+}
+
+// Optionnel: méthode pour récupérer le tour précédent
+static async findPreviousRound(currentRoundId) {
+  try {
+    const currentRound = await this.findById(currentRoundId);
+    if (!currentRound) {
+      return null;
+    }
+
+    const query = `
+      SELECT * FROM rounds 
+      WHERE order_index = $1 
+      ORDER BY order_index DESC 
+      LIMIT 1
+    `;
+    const values = [currentRound.order_index - 1];
+    
+    const result = await pool.query(query, values);
+    return result.rows[0];
+  } catch (error) {
+    console.error('Erreur recherche tour précédent:', error);
+    throw error;
+  }
+}
+// backend/src/models/Round.model.js
+
+static async findPreviousRound(currentRoundId) {
+  try {
+    // Récupérer l'order_index du tour actuel
+    const currentRound = await this.findById(currentRoundId);
+    if (!currentRound) {
+      return null;
+    }
+
+    // Trouver le tour avec l'order_index précédent
+    const query = `
+      SELECT * FROM rounds 
+      WHERE order_index = $1 
+      ORDER BY order_index DESC 
+      LIMIT 1
+    `;
+    const values = [currentRound.order_index - 1];
+    
+    const result = await pool.query(query, values);
+    return result.rows[0];
+  } catch (error) {
+    console.error('Erreur recherche tour précédent:', error);
+    throw error;
+  }
+}
+}
 module.exports = Round;

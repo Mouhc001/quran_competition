@@ -1,9 +1,9 @@
-// backend/database/migrations/full_migration.js
+// backend/scripts/migrate_fixed.js
 const { query } = require('../src/config/database');
 require('dotenv').config();
 
 async function runFullMigration() {
-  console.log('🚀 MIGRATION COMPLÈTE - Quran Competition');
+  console.log('🚀 MIGRATION COMPLÈTE CORRIGÉE - Quran Competition');
   console.log('='.repeat(50));
 
   try {
@@ -16,15 +16,24 @@ async function runFullMigration() {
     console.log('\n🔧 Activation UUID...');
     await query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
 
-    // ============ ÉTAPE 1: SUPPRESSION DES TABLES ============
-    console.log('\n🗑️  Nettoyage des anciennes tables...');
+    // ============ ÉTAPE 1: SUPPRESSION SÉCURISÉE ============
+    console.log('\n🗑️  Nettoyage sécurisé des anciennes tables...');
     
-    // Suppression dans le bon ordre (contraintes de clés étrangères)
+    // D'abord supprimer les contraintes de clés étrangères qui pointent vers system_settings
+    console.log('  🔧 Vérification des dépendances...');
+    
+    // Liste des tables à supprimer DANS LE BON ORDRE
     const tablesToDrop = [
-      'candidate_progress', 'scores', 'round_results', 'candidates', 
-      'judges', 'admins', 'categories', 'rounds', 'system_settings'
+      'candidate_progress',
+      'scores',
+      'candidates',
+      'judges',
+      'admins',
+      'categories',
+      'rounds'
     ];
     
+    // Supprimer les tables
     for (const table of tablesToDrop) {
       try {
         await query(`DROP TABLE IF EXISTS ${table} CASCADE`);
@@ -33,11 +42,27 @@ async function runFullMigration() {
         console.log(`  ⚠️  ${table}: ${error.message}`);
       }
     }
+    
+    // Gestion spéciale pour system_settings
+    console.log('\n🔧 Gestion spéciale pour system_settings...');
+    try {
+      // Essayer de la supprimer normalement
+      await query('DROP TABLE IF EXISTS system_settings CASCADE');
+      console.log('  ✅ system_settings supprimée');
+    } catch (error) {
+      console.log(`  ⚠️  Impossible de supprimer system_settings: ${error.message}`);
+      console.log('  🔧 Tentative de création avec IF NOT EXISTS...');
+    }
 
     // Supprimer les vues
     console.log('\n🗑️  Nettoyage des vues...');
-    await query('DROP VIEW IF EXISTS candidate_results CASCADE');
-    await query('DROP VIEW IF EXISTS candidate_qualification_history CASCADE');
+    try {
+      await query('DROP VIEW IF EXISTS candidate_results CASCADE');
+      await query('DROP VIEW IF EXISTS candidate_qualification_history CASCADE');
+      console.log('  ✅ Vues supprimées');
+    } catch (error) {
+      console.log(`  ⚠️  Vues: ${error.message}`);
+    }
 
     // ============ ÉTAPE 2: CRÉATION DES TABLES ============
     console.log('\n📋 Création des nouvelles tables...');
@@ -45,7 +70,7 @@ async function runFullMigration() {
     // 2.1 Table admins
     console.log('  👤 admins');
     await query(`
-      CREATE TABLE admins (
+      CREATE TABLE IF NOT EXISTS admins (
         id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
         email VARCHAR(255) UNIQUE NOT NULL,
         password_hash VARCHAR(255) NOT NULL,
@@ -59,7 +84,7 @@ async function runFullMigration() {
     // 2.2 Table categories
     console.log('  📊 categories');
     await query(`
-      CREATE TABLE categories (
+      CREATE TABLE IF NOT EXISTS categories (
         id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
         name VARCHAR(100) UNIQUE NOT NULL,
         hizb_count INTEGER NOT NULL,
@@ -73,7 +98,7 @@ async function runFullMigration() {
     // 2.3 Table rounds
     console.log('  🏆 rounds');
     await query(`
-      CREATE TABLE rounds (
+      CREATE TABLE IF NOT EXISTS rounds (
         id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
         name VARCHAR(100) NOT NULL,
         description TEXT,
@@ -90,7 +115,7 @@ async function runFullMigration() {
     // 2.4 Table judges
     console.log('  ⚖️ judges');
     await query(`
-      CREATE TABLE judges (
+      CREATE TABLE IF NOT EXISTS judges (
         id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
         code VARCHAR(50) UNIQUE NOT NULL,
         name VARCHAR(255) NOT NULL,
@@ -101,10 +126,10 @@ async function runFullMigration() {
       )
     `);
 
-    // 2.5 Table candidates (AVEC COLONNES POUR LA QUALIFICATION)
+    // 2.5 Table candidates
     console.log('  👥 candidates');
     await query(`
-      CREATE TABLE candidates (
+      CREATE TABLE IF NOT EXISTS candidates (
         id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
         registration_number VARCHAR(50) NOT NULL,
         name VARCHAR(255) NOT NULL,
@@ -134,7 +159,7 @@ async function runFullMigration() {
     // 2.6 Table scores
     console.log('  📝 scores');
     await query(`
-      CREATE TABLE scores (
+      CREATE TABLE IF NOT EXISTS scores (
         id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
         candidate_id UUID REFERENCES candidates(id) ON DELETE CASCADE,
         judge_id UUID REFERENCES judges(id) ON DELETE CASCADE,
@@ -164,10 +189,10 @@ async function runFullMigration() {
       )
     `);
 
-    // 2.7 Table candidate_progress (HISTORIQUE QUALIFICATION)
+    // 2.7 Table candidate_progress
     console.log('  📈 candidate_progress');
     await query(`
-      CREATE TABLE candidate_progress (
+      CREATE TABLE IF NOT EXISTS candidate_progress (
         id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
         candidate_id UUID NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
         from_round_id UUID NOT NULL REFERENCES rounds(id),
@@ -186,20 +211,38 @@ async function runFullMigration() {
       )
     `);
 
-    // 2.8 Table system_settings
+    // 2.8 Table system_settings (AVEC TRUC POUR ÉVITER LES CONFLITS)
     console.log('  ⚙️ system_settings');
-    await query(`
-      CREATE TABLE system_settings (
-        id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-        setting_key VARCHAR(100) UNIQUE NOT NULL,
-        setting_value TEXT,
-        description TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    
+    // D'abord vérifier si elle existe vraiment
+    const settingsExists = await query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'system_settings'
       )
     `);
+    
+    if (settingsExists.rows[0].exists) {
+      console.log('  ⚠️  system_settings existe déjà, on la garde');
+      // Vider la table si elle existe
+      await query('DELETE FROM system_settings');
+    } else {
+      // Créer la table
+      await query(`
+        CREATE TABLE system_settings (
+          id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+          setting_key VARCHAR(100) UNIQUE NOT NULL,
+          setting_value TEXT,
+          description TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log('  ✅ system_settings créée');
+    }
 
-    console.log('✅ Toutes les tables créées!');
+    console.log('✅ Toutes les tables vérifiées/créées!');
 
     // ============ ÉTAPE 3: CRÉATION DES VUES ============
     console.log('\n👁️  Création des vues...');
@@ -207,7 +250,7 @@ async function runFullMigration() {
     // Vue candidate_results
     console.log('  👁️  candidate_results');
     await query(`
-      CREATE VIEW candidate_results AS
+      CREATE OR REPLACE VIEW candidate_results AS
       SELECT 
         c.id as candidate_id,
         c.registration_number,
@@ -335,28 +378,6 @@ async function runFullMigration() {
       `, [key, value, description]);
     }
 
-    // 4.5 Candidats de test (optionnel)
-    console.log('  👥 Candidats de test');
-    const categoriesResult = await query('SELECT id FROM categories ORDER BY hizb_count LIMIT 4');
-    const roundResult = await query('SELECT id FROM rounds WHERE order_index = 1');
-    
-    if (categoriesResult.rows.length > 0 && roundResult.rows.length > 0) {
-      const testCandidates = [
-        ['CAN001', 'Mohammed Ali', categoriesResult.rows[0].id, roundResult.rows[0].id],
-        ['CAN002', 'Fatima Zahra', categoriesResult.rows[1].id, roundResult.rows[0].id],
-        ['CAN003', 'Ahmed Benali', categoriesResult.rows[2].id, roundResult.rows[0].id],
-        ['CAN004', 'Amina Toumi', categoriesResult.rows[3].id, roundResult.rows[0].id]
-      ];
-      
-      for (const [regNum, name, categoryId, roundId] of testCandidates) {
-        await query(`
-          INSERT INTO candidates (registration_number, name, category_id, round_id, is_original) 
-          VALUES ($1, $2, $3, $4, true)
-          ON CONFLICT (registration_number, round_id) DO NOTHING
-        `, [regNum, name, categoryId, roundId]);
-      }
-    }
-
     console.log('✅ Données par défaut insérées!');
 
     // ============ ÉTAPE 5: CRÉATION DES INDEX ============
@@ -364,42 +385,43 @@ async function runFullMigration() {
 
     const indexes = [
       // Candidats
-      `CREATE INDEX idx_candidates_round ON candidates(round_id)`,
-      `CREATE INDEX idx_candidates_status ON candidates(status)`,
-      `CREATE INDEX idx_candidates_category ON candidates(category_id)`,
-      `CREATE INDEX idx_candidates_original ON candidates(original_candidate_id)`,
-      `CREATE INDEX idx_candidates_is_original ON candidates(is_original)`,
-      `CREATE INDEX idx_candidates_registration ON candidates(registration_number)`,
+      { sql: `CREATE INDEX IF NOT EXISTS idx_candidates_round ON candidates(round_id)`, name: 'idx_candidates_round' },
+      { sql: `CREATE INDEX IF NOT EXISTS idx_candidates_status ON candidates(status)`, name: 'idx_candidates_status' },
+      { sql: `CREATE INDEX IF NOT EXISTS idx_candidates_category ON candidates(category_id)`, name: 'idx_candidates_category' },
+      { sql: `CREATE INDEX IF NOT EXISTS idx_candidates_original ON candidates(original_candidate_id)`, name: 'idx_candidates_original' },
+      { sql: `CREATE INDEX IF NOT EXISTS idx_candidates_is_original ON candidates(is_original)`, name: 'idx_candidates_is_original' },
+      { sql: `CREATE INDEX IF NOT EXISTS idx_candidates_registration ON candidates(registration_number)`, name: 'idx_candidates_registration' },
       
       // Scores
-      `CREATE INDEX idx_scores_candidate_round ON scores(candidate_id, round_id)`,
-      `CREATE INDEX idx_scores_judge_round ON scores(judge_id, round_id)`,
-      `CREATE INDEX idx_scores_candidate_judge ON scores(candidate_id, judge_id)`,
-      `CREATE INDEX idx_scores_submitted_at ON scores(submitted_at)`,
+      { sql: `CREATE INDEX IF NOT EXISTS idx_scores_candidate_round ON scores(candidate_id, round_id)`, name: 'idx_scores_candidate_round' },
+      { sql: `CREATE INDEX IF NOT EXISTS idx_scores_judge_round ON scores(judge_id, round_id)`, name: 'idx_scores_judge_round' },
+      { sql: `CREATE INDEX IF NOT EXISTS idx_scores_candidate_judge ON scores(candidate_id, judge_id)`, name: 'idx_scores_candidate_judge' },
+      { sql: `CREATE INDEX IF NOT EXISTS idx_scores_submitted_at ON scores(submitted_at)`, name: 'idx_scores_submitted_at' },
       
       // Tours
-      `CREATE INDEX idx_rounds_order_index ON rounds(order_index)`,
-      `CREATE INDEX idx_rounds_is_active ON rounds(is_active)`,
+      { sql: `CREATE INDEX IF NOT EXISTS idx_rounds_order_index ON rounds(order_index)`, name: 'idx_rounds_order_index' },
+      { sql: `CREATE INDEX IF NOT EXISTS idx_rounds_is_active ON rounds(is_active)`, name: 'idx_rounds_is_active' },
       
       // Jurys
-      `CREATE INDEX idx_judges_code ON judges(code)`,
-      `CREATE INDEX idx_judges_active ON judges(is_active)`,
+      { sql: `CREATE INDEX IF NOT EXISTS idx_judges_code ON judges(code)`, name: 'idx_judges_code' },
+      { sql: `CREATE INDEX IF NOT EXISTS idx_judges_active ON judges(is_active)`, name: 'idx_judges_active' },
       
       // Qualification
-      `CREATE INDEX idx_candidate_progress_candidate ON candidate_progress(candidate_id)`,
-      `CREATE INDEX idx_candidate_progress_from_round ON candidate_progress(from_round_id)`,
-      `CREATE INDEX idx_candidate_progress_to_round ON candidate_progress(to_round_id)`,
-      `CREATE INDEX idx_candidate_progress_qualified_at ON candidate_progress(qualified_at)`,
+      { sql: `CREATE INDEX IF NOT EXISTS idx_candidate_progress_candidate ON candidate_progress(candidate_id)`, name: 'idx_candidate_progress_candidate' },
+      { sql: `CREATE INDEX IF NOT EXISTS idx_candidate_progress_from_round ON candidate_progress(from_round_id)`, name: 'idx_candidate_progress_from_round' },
+      { sql: `CREATE INDEX IF NOT EXISTS idx_candidate_progress_to_round ON candidate_progress(to_round_id)`, name: 'idx_candidate_progress_to_round' },
+      { sql: `CREATE INDEX IF NOT EXISTS idx_candidate_progress_qualified_at ON candidate_progress(qualified_at)`, name: 'idx_candidate_progress_qualified_at' },
       
       // Catégories
-      `CREATE INDEX idx_categories_hizb_count ON categories(hizb_count)`
+      { sql: `CREATE INDEX IF NOT EXISTS idx_categories_hizb_count ON categories(hizb_count)`, name: 'idx_categories_hizb_count' }
     ];
 
-    for (const sql of indexes) {
+    for (const index of indexes) {
       try {
-        await query(sql);
+        await query(index.sql);
+        console.log(`  ✅ ${index.name}`);
       } catch (error) {
-        console.log(`  ⚠️  ${error.message.split(' ')[0]}`);
+        console.log(`  ⚠️  ${index.name}: ${error.message}`);
       }
     }
 
@@ -418,10 +440,11 @@ async function runFullMigration() {
         const count = await query(`SELECT COUNT(*) as count FROM ${table}`);
         console.log(`  ${table.padEnd(20)}: ${count.rows[0].count}`);
       } catch (error) {
-        console.log(`  ${table.padEnd(20)}: ERREUR`);
+        console.log(`  ${table.padEnd(20)}: ERREUR - ${error.message}`);
       }
     }
 
+    // Afficher plus de détails
     console.log('\n🏆 TOURS CRÉÉS:');
     const rounds = await query(`
       SELECT name, order_index, is_active, 
@@ -442,22 +465,31 @@ async function runFullMigration() {
     
     console.table(cats.rows);
 
-    console.log('\n⚖️ JURYS ACTIFS:');
-    const judges = await query(`
-      SELECT code, name, email, is_active 
-      FROM judges 
-      WHERE is_active = true
-    `);
-    
-    console.table(judges.rows);
-
     console.log('\n✅ BASE DE DONNÉES PRÊTE !');
-    console.log('\n🔑 Créez un admin avec: npm run create-admin');
-    console.log('🚀 Démarrez l\'application avec: npm run dev');
+    console.log('\n🔑 Pour créer un admin: npm run create-admin');
+    console.log('🚀 Pour démarrer: npm run dev');
 
   } catch (error) {
     console.error('\n❌ ERREUR DE MIGRATION:', error.message);
-    console.error('Stack:', error.stack);
+    console.error('Détails:', error);
+    
+    // Essayer de récupérer
+    console.log('\n🔄 Tentative de récupération...');
+    try {
+      // Vérifier quelles tables existent
+      const existingTables = await query(`
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public'
+      `);
+      
+      console.log('\n📋 Tables existantes:');
+      existingTables.rows.forEach(row => console.log(`  - ${row.table_name}`));
+      
+    } catch (recoveryError) {
+      console.log('❌ Impossible de récupérer:', recoveryError.message);
+    }
+    
     process.exit(1);
   }
 }

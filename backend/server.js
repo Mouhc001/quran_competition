@@ -31,7 +31,10 @@ app.use('/api/scores', require('./src/routes/score.routes'));
 app.use('/api/judges', require('./src/routes/judge.routes'));
 
 // ⭐⭐ AJOUTEZ CETTE LIGNE ICI - APRÈS les autres routes API ⭐⭐
+app.use('/api/qualification', require('./src/routes/qualification.routes'));
+
 app.use('/api/admin', require('./src/routes/admin.routes'));
+
 
 // Route pour soumettre les scores
 app.post('/api/scores', async (req, res) => {
@@ -182,3 +185,5 @@ app.listen(PORT, () => {
   console.log(`🔗 API disponible sur: http://localhost:${PORT}/api`);
   console.log(`👑 Routes admin: http://localhost:${PORT}/api/admin/*`);
 });
+
+const qualificationRoutes = require('./src/routes/qualification.routes');

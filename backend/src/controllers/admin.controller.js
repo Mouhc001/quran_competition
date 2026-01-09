@@ -7,7 +7,6 @@ const Score = require('../models/Score.model');
 // Dashboard Stats - VERSION FINALE ROBUSTE
 exports.getDashboardStats = async (req, res) => {
   try {
-    console.log('📊 Chargement dashboard...');
     
     // Récupération en parallèle avec gestion d'erreur individuelle
     const stats = {
@@ -21,7 +20,7 @@ exports.getDashboardStats = async (req, res) => {
     
     // 1. Candidats
     try {
-      const result = await query('SELECT COUNT(*) FROM candidates');
+      const result = await query('SELECT COUNT(*) FROM candidates WHERE is_original = true');
       stats.candidates = parseInt(result.rows[0].count) || 0;
     } catch (err) {
       console.log('⚠️  Erreur candidats:', err.message);
@@ -107,13 +106,20 @@ exports.getDashboardStats = async (req, res) => {
 
 exports.getAllCandidates = async (req, res) => {
   try {
-    const { round, category, status, search, page = 1, limit = 20 } = req.query;
+    const { round, category, status, search, page = 1, limit = 20, originals_only = 'true' } = req.query;
     const offset = (page - 1) * limit;
     
     let whereConditions = ['1=1'];
     let queryParams = [];
     let paramIndex = 1;
 
+
+    if (originals_only === 'true') {
+      whereConditions.push(`c.is_original = $${paramIndex}`);
+      queryParams.push(true);
+      paramIndex++;
+    }
+    
     if (round && round !== 'all') {
       whereConditions.push(`c.round_id = $${paramIndex}`);
       queryParams.push(round);
@@ -410,15 +416,19 @@ exports.createCandidate = async (req, res) => {
       notes
     } = req.body;
 
-    // Récupérer le dernier numéro
-    const lastNumberResult = await query(
+    console.log('📝 Création candidat pour le tour:', round_id);
+
+    // 1. Récupérer le dernier numéro POUR CE TOUR
+    const lastNumberResult = await pool.query(
       `SELECT registration_number FROM candidates 
-       WHERE registration_number LIKE 'CAN%'
+       WHERE round_id = $1 
+         AND registration_number LIKE 'CAN%'
        ORDER BY registration_number DESC 
-       LIMIT 1`
+       LIMIT 1`,
+      [round_id]
     );
 
-     let nextNumber = 1;
+    let nextNumber = 1;
     if (lastNumberResult.rows.length > 0) {
       const lastNumber = lastNumberResult.rows[0].registration_number;
       const match = lastNumber.match(/CAN(\d+)/);
@@ -429,30 +439,30 @@ exports.createCandidate = async (req, res) => {
 
     const registration_number = `CAN${String(nextNumber).padStart(3, '0')}`;
 
-    console.log('📝 Numéro généré:', registration_number);
+    console.log('📝 Numéro généré pour le tour', round_id, ':', registration_number);
 
-    // 2. Vérifier si le numéro existe (par sécurité)
-    const existing = await query(
-      'SELECT id FROM candidates WHERE registration_number = $1',
-      [registration_number]
+    // 2. Vérifier si le numéro existe DANS CE TOUR (par sécurité)
+    const existing = await pool.query(
+      'SELECT id FROM candidates WHERE registration_number = $1 AND round_id = $2',
+      [registration_number, round_id]
     );
 
     if (existing.rows.length > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Numéro d\'inscription déjà utilisé'
+        message: 'Numéro d\'inscription déjà utilisé dans ce tour'
       });
     }
 
-    const result = await query(
+    const result = await pool.query(
       `INSERT INTO candidates (
         registration_number, name, birth_date, phone, email,
-        category_id, round_id, notes
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        category_id, round_id, notes, status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active')
       RETURNING *`,
       [
         registration_number, name, birth_date, phone, email,
-        category_id, round_id, notes
+        category_id, round_id, notes || null
       ]
     );
 
@@ -463,7 +473,21 @@ exports.createCandidate = async (req, res) => {
     });
   } catch (error) {
     console.error('Create candidate error:', error);
-    res.status(500).json({ success: false, message: 'Erreur serveur' });
+    
+    // Gestion spécifique de l'erreur de contrainte unique
+    if (error.code === '23505') {
+      return res.status(400).json({
+        success: false,
+        message: 'Numéro d\'inscription déjà utilisé',
+        details: 'Ce numéro est déjà utilisé par un autre candidat dans le même tour'
+      });
+    }
+    
+    res.status(500).json({ 
+      success: false, 
+      message: 'Erreur serveur',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 };
 
@@ -724,6 +748,7 @@ exports.getRoundDetails = async (req, res) => {
     });
   }
 };
+
 
 exports.deleteRound = async (req, res) => {
   try {
