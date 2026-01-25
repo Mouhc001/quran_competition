@@ -104,109 +104,117 @@ class Score {
     return result.rows[0] || null;
   }
 
-  static async getScoresByRoundCategory(roundId, categoryId) {
-    const result = await query(`
-      WITH candidate_scores AS (
-        SELECT 
-          c.id as candidate_id,
-          c.name as candidate_name,
-          c.registration_number,
-          cat.name as category_name,
-          s.judge_id,
-          j.name as judge_name,
-          j.code as judge_code,
-          
-          -- CAST en float pour éviter les problèmes de type JSON
-          COALESCE(SUM(s.total_score::float), 0) as judge_total,
-          
+  // Dans Score.model.js - getScoresByRoundCategory
+static async getScoresByRoundCategory(roundId, categoryId) {
+  const result = await query(`
+    WITH candidate_scores AS (
+      SELECT 
+        c.id as candidate_id,
+        c.name as candidate_name,
+        c.registration_number,
+        c.status,
+        cat.name as category_name,
+        s.judge_id,
+        j.name as judge_name,
+        j.code as judge_code,
+        
+        -- Score total du jury (5 questions)
+        COALESCE(SUM(s.total_score::float), 0) as judge_total,
+        
+        -- Moyenne par question (total / 5) - INCLUT LES 0
+        COALESCE(SUM(s.total_score::float) / 5, 0) as judge_average_per_question,
+        
+        json_agg(
+          json_build_object(
+            'question_number', s.question_number,
+            'recitation_score', COALESCE(s.recitation_score::float, 0),
+            'siffat_score', COALESCE(s.siffat_score::float, 0),
+            'makharij_score', COALESCE(s.makharij_score::float, 0),
+            'minor_error_score', COALESCE(s.minor_error_score::float, 0),
+            'question_total', COALESCE(s.total_score::float, 0),
+            'comment', COALESCE(s.comment, '')
+          ) ORDER BY s.question_number
+        ) as questions_details
+        
+      FROM candidates c
+      LEFT JOIN categories cat ON c.category_id = cat.id
+      LEFT JOIN scores s ON c.id = s.candidate_id AND s.round_id = $1
+      LEFT JOIN judges j ON s.judge_id = j.id
+      WHERE c.round_id = $1 
+        AND c.category_id = $2
+      GROUP BY c.id, c.name, c.registration_number, c.status, cat.name, s.judge_id, j.name, j.code
+    ),
+    
+    candidate_summary AS (
+      SELECT 
+        candidate_id,
+        candidate_name,
+        registration_number,
+        status,
+        category_name as category,
+        
+        COUNT(DISTINCT judge_id)::integer as judges_count,
+        
+        -- Moyenne par question (sur 6) - moyenne des jurys
+        -- INCLUT LES 0 : utilise AVG direct sans CASE
+        COALESCE(
+          ROUND(
+            AVG(judge_average_per_question)::numeric, 
+            2
+          )::float, 
+          0
+        ) as average_per_question,
+        
+        -- Score total (sur 30) - moyenne des totaux des jurys
+        -- INCLUT LES 0 : utilise AVG direct sans CASE
+        COALESCE(
+          ROUND(
+            AVG(judge_total)::numeric, 
+            2
+          )::float, 
+          0
+        ) as total_score,
+        
+        COALESCE(
           json_agg(
             json_build_object(
-              'question_number', s.question_number,
-              'recitation_score', COALESCE(s.recitation_score::float, 0),
-              'siffat_score', COALESCE(s.siffat_score::float, 0),
-              'makharij_score', COALESCE(s.makharij_score::float, 0),
-              'minor_error_score', COALESCE(s.minor_error_score::float, 0),
-              'question_total', COALESCE(s.total_score::float, 0),
-              'comment', COALESCE(s.comment, '')
-            ) ORDER BY s.question_number
-          ) as questions_details
-          
-        FROM candidates c
-        LEFT JOIN categories cat ON c.category_id = cat.id
-        LEFT JOIN scores s ON c.id = s.candidate_id AND s.round_id = $1
-        LEFT JOIN judges j ON s.judge_id = j.id
-        WHERE c.round_id = $1 
-          AND c.category_id = $2
-          AND c.status = 'active'
-        GROUP BY c.id, c.name, c.registration_number, cat.name, s.judge_id, j.name, j.code
-      ),
-      
-      candidate_summary AS (
-        SELECT 
-          candidate_id,
-          candidate_name,
-          registration_number,
-          category_name as category,
-          
-          COUNT(DISTINCT judge_id)::integer as judges_count,
-          
-          -- CAST en float avec COALESCE pour gérer les NULL
-          COALESCE(
-            ROUND(
-              AVG(
-                CASE 
-                  WHEN judge_total > 0 THEN judge_total 
-                  ELSE NULL 
-                END
-              )::numeric, 
-              2
-            )::float, 
-            0
-          ) as total_score,
-          
-          COALESCE(
-            ROUND(
-              AVG(
-                CASE 
-                  WHEN judge_total > 0 THEN judge_total 
-                  ELSE NULL 
-                END
-              )::numeric / 5, 
-              2
-            )::float,
-            0
-          ) as average_per_question,
-          
-          COALESCE(
-            json_agg(
-              json_build_object(
-                'judge_id', judge_id,
-                'judge_name', judge_name,
-                'judge_code', judge_code,
-                'judge_total', judge_total::float,
-                'questions', questions_details
-              )
-            ),
-            '[]'::json
-          ) as judges_details
-          
-        FROM candidate_scores
-        GROUP BY candidate_id, candidate_name, registration_number, category_name
-      )
-      
-      SELECT * FROM candidate_summary
-      ORDER BY COALESCE(total_score, 0) DESC, candidate_name
-    `, [roundId, categoryId]);
+              'judge_id', judge_id,
+              'judge_name', judge_name,
+              'judge_code', judge_code,
+              'judge_total', judge_total::float,
+              'judge_average_per_question', judge_average_per_question::float,
+              'questions', questions_details
+            )
+          ),
+          '[]'::json
+        ) as judges_details
+        
+      FROM candidate_scores
+      GROUP BY candidate_id, candidate_name, registration_number, status, category_name
+    )
     
-    // Log de débogage
-    console.log('📊 [MODEL] Query result - rows:', result.rows.length);
-    if (result.rows.length > 0) {
-      console.log('📊 [MODEL] First row total_score:', result.rows[0].total_score);
-      console.log('📊 [MODEL] First row total_score type:', typeof result.rows[0].total_score);
-    }
+    SELECT * FROM candidate_summary
+    ORDER BY COALESCE(total_score, 0) DESC, candidate_name
+  `, [roundId, categoryId]);
+  
+  // Conversion: total_score doit être (average_per_question / 5) * 20
+  // Mais comme vous voulez garder votre front-end, on va calculer correctement
+  const correctedRows = result.rows.map(row => {
+    // Calcul correct: moyenne par question sur 6, puis conversion
+    // On garde total_score comme référence brute sur 30
     
-    return result.rows;
-  }
+    // Mais si vous voulez que total_score soit la note sur 20:
+    const scoreOn20 = (row.average_per_question / 6) * 20;
+    
+    return {
+      ...row,
+      total_score: parseFloat(scoreOn20.toFixed(2)), // Score sur 20
+      average_per_question: row.average_per_question // Moyenne sur 6
+    };
+  });
+  
+  return correctedRows;
+}
 
   static async getScoresByQuestion(roundId, categoryId) {
     const result = await query(`

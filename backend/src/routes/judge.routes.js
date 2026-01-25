@@ -3,7 +3,7 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const Judge = require('../models/Judge.model');
 const authenticateJudge = require('../middleware/auth.middleware').authenticateJudge;
-
+const { query: dbQuery } = require('../config/database'); // Renommez ici
 
 // POST /api/judges/login - Connexion d'un jury
 router.post('/login', async (req, res) => {
@@ -71,53 +71,20 @@ router.post('/login', async (req, res) => {
 });
 
 // GET /api/judges/me - Récupérer les infos du jury connecté
-router.get('/me', async (req, res) => {
+router.get('/me', authenticateJudge, async (req, res) => {
   try {
-    const token = req.headers.authorization?.split(' ')[1];
-    
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: 'Token manquant'
-      });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'votre_secret_jwt');
-    
-    const judge = await Judge.findById(decoded.id);
-    
-    if (!judge) {
-      return res.status(401).json({
-        success: false,
-        message: 'Jury non trouvé'
-      });
-    }
-
-    // Retourner seulement les infos publiques
-    const { password_hash, ...judgeData } = judge;
-    
+    // SIMPLIFIEZ CETTE ROUTE - req.user est déjà défini par le middleware
     res.json({
       success: true,
-      data: judgeData
+      data: {
+        id: req.user.id,
+        code: req.user.code,
+        name: req.user.name,
+        is_active: req.user.is_active
+      }
     });
-
   } catch (error) {
     console.error('Erreur récupération jury:', error);
-    
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({
-        success: false,
-        message: 'Token invalide'
-      });
-    }
-    
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({
-        success: false,
-        message: 'Token expiré'
-      });
-    }
-
     res.status(500).json({
       success: false,
       message: 'Erreur serveur'
@@ -144,34 +111,65 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/judges/active-candidates - Candidats du tour actif pour les jurys
-router.get('/active-candidates', authenticateJudge, async (req, res) => {
+// GET /api/judges/rounds - Liste de tous les tours pour les jurys
+router.get('/rounds', authenticateJudge, async (req, res) => {
+  try {
+    console.log('🔑 Jury authentifié pour /rounds:', req.user.id);
+    
+    const roundsQuery = await dbQuery(`
+      SELECT id, name, description, order_index, is_active
+      FROM rounds 
+      ORDER BY order_index
+    `);
+    
+    console.log(`📋 ${roundsQuery.rows.length} tours récupérés`);
+    
+    res.json({
+      success: true,
+      data: roundsQuery.rows
+    });
+  } catch (error) {
+    console.error('❌ Erreur récupération tours:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur serveur lors de la récupération des tours'
+    });
+  }
+});
+
+// GET /api/judges/round-candidates/:roundId? - Candidats d'un tour spécifique
+router.get('/round-candidates/:roundId?', authenticateJudge, async (req, res) => {
   try {
     const judgeId = req.user.id;
-    console.log('🎯 Jury ID:', judgeId);
+    let roundId = req.params.roundId;
     
-    // Récupérer le tour actif
-    const { query } = require('../config/database');
-    const activeRoundQuery = await query(
-      'SELECT * FROM rounds WHERE is_active = true ORDER BY order_index LIMIT 1'
-    );
+    console.log('🎯 Jury ID:', judgeId, 'Round ID demandé:', roundId);
     
-    if (activeRoundQuery.rows.length === 0) {
-      return res.json({
-        success: true,
-        data: [],
-        message: 'Aucun tour actif'
-      });
+    // Si aucun roundId n'est fourni, utiliser le tour actif
+    if (!roundId) {
+      const activeRoundQuery = await dbQuery(
+        'SELECT * FROM rounds WHERE is_active = true ORDER BY order_index LIMIT 1'
+      );
+      
+      if (activeRoundQuery.rows.length === 0) {
+        return res.json({
+          success: true,
+          data: [],
+          message: 'Aucun tour actif'
+        });
+      }
+      roundId = activeRoundQuery.rows[0].id;
     }
     
-    const activeRound = activeRoundQuery.rows[0];
-    console.log('🏆 Tour actif:', activeRound.name);
+    console.log('🏆 Tour sélectionné:', roundId);
     
     // Récupérer les candidats VISIBLES pour les jurys
-    const candidatesQuery = await query(`
+    const candidatesQuery = await dbQuery(`
       SELECT DISTINCT ON (coalesce(c.original_candidate_id, c.id)) 
         c.*,
         cat.name as category_name,
+        r.name as round_name,
+        r.order_index as round_order,
         COALESCE((
           SELECT COUNT(DISTINCT s.judge_id) 
           FROM scores s 
@@ -194,6 +192,7 @@ router.get('/active-candidates', authenticateJudge, async (req, res) => {
         
       FROM candidates c
       LEFT JOIN categories cat ON c.category_id = cat.id
+      LEFT JOIN rounds r ON c.round_id = r.id
       WHERE c.round_id = $2
         AND (
           -- Soit c'est un clone dans ce tour
@@ -207,17 +206,26 @@ router.get('/active-candidates', authenticateJudge, async (req, res) => {
         )
         AND c.status = 'active'
       ORDER BY coalesce(c.original_candidate_id, c.id), c.is_original DESC
-    `, [judgeId, activeRound.id]);
+    `, [judgeId, roundId]);
     
-    console.log(`📊 ${candidatesQuery.rows.length} candidats trouvés pour le jury`);
+    console.log(`📊 ${candidatesQuery.rows.length} candidats trouvés pour le tour`, roundId);
+    
+    // Récupérer également les infos du tour
+    const roundInfoQuery = await dbQuery(
+      'SELECT * FROM rounds WHERE id = $1',
+      [roundId]
+    );
+    
+    const roundInfo = roundInfoQuery.rows[0] || {};
     
     res.json({
       success: true,
       data: candidatesQuery.rows,
-      activeRound: {
-        id: activeRound.id,
-        name: activeRound.name,
-        order_index: activeRound.order_index
+      round: {
+        id: roundInfo.id,
+        name: roundInfo.name,
+        order_index: roundInfo.order_index,
+        is_active: roundInfo.is_active
       }
     });
     
@@ -234,6 +242,15 @@ router.get('/active-candidates', authenticateJudge, async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    
+    // Vérifier si l'ID est valide avant de faire la requête
+    if (!id || id === 'rounds' || id === 'active-candidates') {
+      return res.status(404).json({
+        success: false,
+        message: 'Route non trouvée'
+      });
+    }
+    
     const judge = await Judge.findById(id);
     
     if (!judge) {
