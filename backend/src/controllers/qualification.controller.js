@@ -173,23 +173,58 @@ const registrationNumber = await QualificationController.generateRegistrationNum
   }
 }
   
-  static async generateRegistrationNumberSimple(roundId) {
+// backend/controllers/qualification.controller.js
+static async generateRegistrationNumberSimple(roundId) {
   try {
-    const countQuery = await pool.query(
-      `SELECT COUNT(*) as count FROM candidates WHERE round_id = $1`,
+    // Récupérer tous les numéros d'inscription existants pour ce round
+    const existingNumbersQuery = await pool.query(
+      `SELECT registration_number FROM candidates WHERE round_id = $1 ORDER BY registration_number`,
       [roundId]
     );
     
-    const count = parseInt(countQuery.rows[0].count) + 1;
+    const existingNumbers = existingNumbersQuery.rows.map(row => row.registration_number);
+    console.log('🔢 Numéros existants:', existingNumbers);
+    
     const roundQuery = await pool.query(
       `SELECT order_index FROM rounds WHERE id = $1`,
       [roundId]
     );
-    const roundOrder = roundQuery.rows[0]?.order_index || '01';
+    const roundOrder = roundQuery.rows[0]?.order_index || 1;
+    const roundPrefix = `R${String(roundOrder).padStart(2, '0')}`;
     
-    return `R${String(roundOrder).padStart(2, '0')}-${String(count).padStart(3, '0')}`;
+    // Trouver le premier numéro disponible
+    let nextNumber = 1;
+    
+    // Extraire les numéros existants
+    const usedNumbers = [];
+    existingNumbers.forEach(num => {
+      const match = num.match(/R\d{2}-(\d{3})/);
+      if (match) {
+        usedNumbers.push(parseInt(match[1]));
+      }
+    });
+    
+    // Trier les numéros utilisés
+    usedNumbers.sort((a, b) => a - b);
+    console.log('🔢 Numéros utilisés triés:', usedNumbers);
+    
+    // Trouver le premier numéro disponible
+    for (let i = 0; i < usedNumbers.length; i++) {
+      if (usedNumbers[i] !== i + 1) {
+        nextNumber = i + 1;
+        break;
+      }
+      nextNumber = usedNumbers.length + 1;
+    }
+    
+    const newNumber = `${roundPrefix}-${String(nextNumber).padStart(3, '0')}`;
+    console.log(`🔢 Nouveau numéro généré: ${newNumber}`);
+    
+    return newNumber;
+    
   } catch (error) {
     console.error('Erreur génération numéro:', error);
+    // Fallback: utiliser timestamp
     return `TEMP-${Date.now()}`;
   }
 }
@@ -557,6 +592,199 @@ const registrationNumber = await QualificationController.generateRegistrationNum
       [candidateId]
     );
   }
+
+
+  // backend/controllers/qualification.controller.js
+// Modifiez la partie d'enregistrement dans l'historique pour les clones
+static async updateCandidateStatus(req, res) {
+  console.log('🔄 DÉBUT Mise à jour statut du candidat');
+  
+  try {
+    const { candidateId } = req.params;
+    const { status } = req.body;
+    const adminId = req.user?.id || 'system';
+    
+    console.log(`📋 Candidat ID: ${candidateId}`);
+    console.log(`📊 Nouveau statut: ${status}`);
+    
+    // Récupérer le candidat avec toutes ses infos
+    const candidateQuery = `
+      SELECT 
+        c.*, 
+        r.order_index,
+        r.name as round_name,
+        c.original_candidate_id
+      FROM candidates c
+      JOIN rounds r ON c.round_id = r.id
+      WHERE c.id = $1
+    `;
+    
+    const candidateResult = await pool.query(candidateQuery, [candidateId]);
+    
+    if (candidateResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Candidat non trouvé'
+      });
+    }
+    
+    const candidate = candidateResult.rows[0];
+    const oldStatus = candidate.status;
+    console.log(`📊 Ancien statut: ${oldStatus}`);
+    
+    // Si le statut ne change pas, rien à faire
+    if (oldStatus === status) {
+      return res.json({
+        success: true,
+        message: 'Statut inchangé'
+      });
+    }
+    
+    // Initialiser les variables pour les clones
+    let clonesCount = 0;
+    
+    // Logique spéciale quand on passe de "qualified" à autre chose
+    if (oldStatus === 'qualified' && status !== 'qualified') {
+      console.log('⚠️  Passage de "qualified" à autre chose - Recherche des clones...');
+      
+      // Trouver tous les clones créés par ce candidat
+      const findClonesQuery = `
+        WITH RECURSIVE find_clones AS (
+          SELECT id, original_candidate_id, round_id, registration_number
+          FROM candidates 
+          WHERE id = $1 OR original_candidate_id = $1
+          
+          UNION ALL
+          
+          SELECT c.id, c.original_candidate_id, c.round_id, c.registration_number
+          FROM candidates c
+          INNER JOIN find_clones fc ON c.original_candidate_id = fc.id
+        )
+        SELECT * FROM find_clones WHERE id != $1
+      `;
+      
+      const clonesResult = await pool.query(findClonesQuery, [candidateId]);
+      const clones = clonesResult.rows;
+      clonesCount = clones.length;
+      
+      console.log(`🔍 ${clonesCount} clone(s) trouvé(s)`);
+      
+      if (clonesCount > 0) {
+        const cloneIds = clones.map(clone => clone.id);
+        
+        // 1. D'abord, supprimez les entrées de candidate_progress liées aux clones
+        const deleteProgressQuery = `
+          DELETE FROM candidate_progress 
+          WHERE candidate_id = ANY($1::uuid[])
+            OR (candidate_id = $2 AND to_round_id IN (
+              SELECT round_id FROM candidates WHERE id = ANY($1::uuid[])
+            ))
+        `;
+        
+        await pool.query(deleteProgressQuery, [cloneIds, candidate.id]);
+        console.log(`🗑️  Entrées candidate_progress supprimées pour les clones`);
+        
+        // 2. Ensuite, supprimez les clones
+        const deleteClonesQuery = `
+          DELETE FROM candidates 
+          WHERE id = ANY($1::uuid[])
+          RETURNING id, registration_number, round_id
+        `;
+        
+        const deleteResult = await pool.query(deleteClonesQuery, [cloneIds]);
+        
+        console.log(`🗑️  ${deleteResult.rows.length} clone(s) supprimé(s):`);
+        deleteResult.rows.forEach(clone => {
+          console.log(`   - ${clone.registration_number} (ID: ${clone.id})`);
+        });
+      }
+    }
+    
+    // Mettre à jour le statut du candidat
+    const updateQuery = `
+      UPDATE candidates 
+      SET status = $1, updated_at = NOW()
+      WHERE id = $2
+      RETURNING *
+    `;
+    
+    const updateResult = await pool.query(updateQuery, [status, candidateId]);
+    const updatedCandidate = updateResult.rows[0];
+    
+    console.log(`✅ Statut mis à jour de "${oldStatus}" à "${status}"`);
+    
+    // CORRECTION : Vérifiez si une entrée existe déjà pour ce (candidate_id, to_round_id)
+    const checkExistingQuery = `
+      SELECT id FROM candidate_progress 
+      WHERE candidate_id = $1 AND to_round_id = $2
+    `;
+    
+    const existingResult = await pool.query(checkExistingQuery, [
+      candidateId,
+      candidate.round_id  // to_round_id = tour actuel
+    ]);
+    
+    if (existingResult.rows.length > 0) {
+      // Mettre à jour l'entrée existante
+      console.log('📝 Mise à jour entrée existante dans candidate_progress');
+      const updateProgressQuery = `
+        UPDATE candidate_progress 
+        SET 
+          notes = CONCAT(COALESCE(notes, ''), ' | Statut changé de "${oldStatus}" à "${status}" le ', NOW()),
+          status = $1,
+          qualified_at = NOW()
+        WHERE candidate_id = $2 AND to_round_id = $3
+      `;
+      
+      await pool.query(updateProgressQuery, [
+        status,
+        candidateId,
+        candidate.round_id
+      ]);
+    } else {
+      // Créer une nouvelle entrée
+      console.log('📝 Création nouvelle entrée dans candidate_progress');
+      const historyQuery = `
+        INSERT INTO candidate_progress (
+          candidate_id,
+          from_round_id,
+          to_round_id,
+          qualified_by,
+          notes,
+          status,
+          qualified_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      `;
+      
+      await pool.query(historyQuery, [
+        candidateId,
+        candidate.round_id,
+        candidate.round_id,
+        adminId,
+        `Statut changé de "${oldStatus}" à "${status}"`,
+        status
+      ]);
+    }
+    
+    res.json({
+      success: true,
+      message: `Statut mis à jour: ${status}`,
+      data: {
+        candidate: updatedCandidate,
+        clones_deleted: clonesCount
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ ERREUR mise à jour statut:', error);
+    console.error('Stack:', error.stack);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur serveur lors de la mise à jour du statut'
+    });
+  }
 }
+}
+
 
 module.exports = QualificationController;

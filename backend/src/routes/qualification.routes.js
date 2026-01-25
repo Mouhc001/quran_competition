@@ -64,4 +64,7 @@ router.post('/rounds/:roundId/qualify-batch', authenticateAdmin, async (req, res
   }
 });
 
+// Mettre à jour le statut d'un candidat (avec gestion des clones)
+router.put('/candidates/:candidateId/status', authenticateAdmin, QualificationController.updateCandidateStatus);
+
 module.exports = router;
