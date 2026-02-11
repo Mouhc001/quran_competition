@@ -3,7 +3,7 @@ const router = express.Router();
 const adminController = require('../controllers/admin.controller');
 const { authenticateAdmin, isAdmin } = require('../middleware/auth.middleware');
 
-// Toutes les routes admin nécessitent une authentification admin
+// ✅ Une seule fois, ça suffit pour TOUTES les routes
 router.use(authenticateAdmin);
 router.use(isAdmin);
 
@@ -18,38 +18,31 @@ router.put('/candidates/:id', adminController.updateCandidate);
 router.delete('/candidates/:id', adminController.deleteCandidate);
 router.put('/candidates/:id/status', adminController.updateCandidateStatus);
 
-// Gestion des tours
-router.get('/rounds', adminController.getAllRounds);
-router.post('/rounds', adminController.createRound);
-router.put('/rounds/:id', adminController.updateRound);
-router.put('/rounds/:id/toggle', adminController.toggleRound);
-
 // Gestion des juges
 router.get('/judges', adminController.getAllJudges);
 router.post('/judges', adminController.createJudge);
-router.put('/judges/:id', adminController.updateJudge); // Ajoute
-router.delete('/judges/:id', adminController.deleteJudge); // Ajoute
-router.put('/judges/:id/status', adminController.updateJudgeStatus); // Nouvelle route
+router.put('/judges/:id', adminController.updateJudge);
+router.delete('/judges/:id', adminController.deleteJudge);
+router.put('/judges/:id/status', adminController.updateJudgeStatus);
 router.post('/judges/generate', adminController.generateJudgeCodes);
 
 // Gestion des catégories
 router.get('/categories', adminController.getAllCategories);
 router.post('/categories', adminController.createCategory);
 
-// Tours
-router.get('/rounds', isAdmin, adminController.getAllRounds);
-router.post('/rounds', isAdmin, adminController.createRound);
-router.get('/rounds/:id', isAdmin, adminController.getRoundDetails);
-router.put('/rounds/:id', isAdmin, adminController.updateRound);
-router.put('/rounds/:id/toggle', isAdmin, adminController.toggleRound);
-router.delete('/rounds/:id', isAdmin, adminController.deleteRound);
-router.get('/rounds/:id/candidates', isAdmin, adminController.getCandidatesByRound);
-
+// ✅ Tours - PLUS AUCUN isAdmin en double !
+router.get('/rounds', adminController.getAllRounds);
+router.post('/rounds', adminController.createRound);
+router.get('/rounds/:id', adminController.getRoundDetails);
+router.put('/rounds/:id', adminController.updateRound);
+router.put('/rounds/:id/toggle', adminController.toggleRound);
+router.delete('/rounds/:id', adminController.deleteRound);
+router.get('/rounds/:id/candidates', adminController.getCandidatesByRound);
 
 // Rapports
 router.get('/reports/round/:roundId', adminController.getRoundReport);
 
-// scores
-router.get('/candidates/:candidateId/rounds/:roundId/scores', isAdmin, adminController.getCandidateDetailedScores);
+// ✅ Scores - PLUS de isAdmin
+router.get('/candidates/:candidateId/rounds/:roundId/scores', adminController.getCandidateDetailedScores);
 
 module.exports = router;

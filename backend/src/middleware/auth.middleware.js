@@ -1,9 +1,16 @@
 const jwt = require('jsonwebtoken');
 const { query } = require('../config/database');
 
+
+console.log('🔥 JWT_SECRET dans middleware:', process.env.JWT_SECRET || 'NON DÉFINI');
+console.log("🔥 Valeur directe:", process.env.JWT_SECRET);
+
+
 exports.authenticateJudge = async (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   
+  console.log('🔑 Token reçu:', token ? token.substring(0, 20) + '...' : 'Aucun');
+
   if (!token) {
     return res.status(401).json({
       success: false,
@@ -12,10 +19,21 @@ exports.authenticateJudge = async (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'votre_secret_jwt');
     
-    console.log('🔐 Token décodé:', decoded);
+    // DÉCODER SANS VÉRIFIER POUR VOIR LE CONTENU
+    const decodedWithoutVerify = jwt.decode(token);
     
+    console.log('📦 Contenu du token (non vérifié):', decodedWithoutVerify);
+    console.log('📦 Type dans le token:', decodedWithoutVerify?.type);
+    
+    // VÉRIFIER AVEC LA BONNE CLÉ
+    const secret = process.env.JWT_SECRET;
+    console.log('🔐 Clé utilisée pour verify:', secret);
+    
+    const decoded = jwt.verify(token, secret);
+    
+    console.log('✅ Token vérifié avec succès:', decoded);
+
     // CORRECTION : Utilisez decoded.id au lieu de decoded.judgeId
     const judgeResult = await query(
       'SELECT * FROM judges WHERE id = $1',
@@ -85,7 +103,7 @@ exports.authenticateAdmin = async (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET );
     
     if (decoded.type !== 'admin') {
       return res.status(403).json({

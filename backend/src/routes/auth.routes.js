@@ -114,4 +114,148 @@ router.get('/admin/verify', async (req, res) => {
   }
 });
 
+
+// Login jury
+router.post('/judge/login', async (req, res) => {
+  try {
+    const { code } = req.body;
+
+    if (!code) {
+      return res.status(400).json({
+        success: false,
+        message: 'Code jury requis'
+      });
+    }
+
+    // Récupérer le jury par son code
+    const result = await query(
+      'SELECT * FROM judges WHERE code = $1 AND is_active = true',
+      [code]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({
+        success: false,
+        message: 'Code jury invalide'
+      });
+    }
+
+    const judge = result.rows[0];
+
+
+    console.log('👨‍⚖️ Jury trouvé:', judge.code, judge.id);
+    console.log('🔐 JWT_SECRET utilisé pour signer:', process.env.JWT_SECRET || 'your-secret-key');
+
+    // Mettre à jour last_login
+    await query(
+      'UPDATE judges SET last_login = CURRENT_TIMESTAMP WHERE id = $1',
+      [judge.id]
+    );
+
+    // GÉNÉRER LE TOKEN AVEC 'id' (pas judgeId ni adminId)
+    const token = jwt.sign(
+      {
+        id: judge.id,           // ← CRUCIAL : middleware utilise decoded.id
+        code: judge.code,
+        name: judge.name,
+        type: 'judge'
+      },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '8h' }
+    );
+
+    console.log('🎫 Token généré (début):', token.substring(0, 30) + '...');
+    // Décodez-le immédiatement pour vérifier
+    const justSigned = jwt.decode(token);
+    console.log('✅ Token fraîchement signé - contenu:', justSigned);
+
+    res.json({
+      success: true,
+      message: 'Connexion jury réussie',
+      data: {
+        token,
+        judge: {
+          id: judge.id,
+          code: judge.code,
+          name: judge.name,
+          is_active: judge.is_active,
+          last_login: judge.last_login
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Judge login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur serveur'
+    });
+  }
+});
+
+// Vérifier le token jury
+router.get('/judge/verify', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'Token manquant'
+      });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+    
+    // Vérifier que c'est bien un token jury
+    if (decoded.type !== 'judge') {
+      return res.status(403).json({
+        success: false,
+        message: 'Token non valide pour un jury'
+      });
+    }
+
+    // Vérifier que le jury existe toujours et est actif
+    const result = await query(
+      'SELECT id, code, name, is_active, last_login FROM judges WHERE id = $1',
+      [decoded.id]
+    );
+
+    if (result.rows.length === 0 || !result.rows[0].is_active) {
+      return res.status(401).json({
+        success: false,
+        message: 'Jury non trouvé ou désactivé'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        judge: result.rows[0]
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Judge verify error:', error);
+    
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({
+        success: false,
+        message: 'Token invalide'
+      });
+    }
+    
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({
+        success: false,
+        message: 'Token expiré'
+      });
+    }
+    
+    res.status(401).json({
+      success: false,
+      message: 'Token invalide'
+    });
+  }
+});
 module.exports = router;

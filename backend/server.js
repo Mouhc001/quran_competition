@@ -1,10 +1,14 @@
-process.env.PORT = '5001';
+require('dotenv').config();
+require('./src/config/database');
+
+
+console.log("SERVER JWT:", process.env.JWT_SECRET);
+
 
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
-require('dotenv').config();
 
 const app = express();
 

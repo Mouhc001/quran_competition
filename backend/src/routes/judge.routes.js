@@ -5,70 +5,7 @@ const Judge = require('../models/Judge.model');
 const authenticateJudge = require('../middleware/auth.middleware').authenticateJudge;
 const { query: dbQuery } = require('../config/database'); // Renommez ici
 
-// POST /api/judges/login - Connexion d'un jury
-router.post('/login', async (req, res) => {
-  try {
-    const { code } = req.body;
-    
-    if (!code) {
-      return res.status(400).json({
-        success: false,
-        message: 'Code requis'
-      });
-    }
 
-    const judge = await Judge.findByCode(code);
-    
-    if (!judge) {
-      return res.status(401).json({
-        success: false,
-        message: 'Code invalide'
-      });
-    }
-
-    if (!judge.is_active) {
-      return res.status(401).json({
-        success: false,
-        message: 'Compte jury désactivé'
-      });
-    }
-
-    // Mettre à jour la dernière connexion
-    await Judge.updateLastLogin(judge.id);
-
-    // Créer un token JWT
-    const token = jwt.sign(
-      { 
-        id: judge.id, 
-        code: judge.code, 
-        name: judge.name,
-        role: 'judge' 
-      },
-      process.env.JWT_SECRET || 'votre_secret_jwt',
-      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
-    );
-
-    res.json({
-      success: true,
-      message: 'Connexion réussie',
-      data: {
-        token,
-        judge: {
-          id: judge.id,
-          code: judge.code,
-          name: judge.name
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error('Erreur connexion jury:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur serveur'
-    });
-  }
-});
 
 // GET /api/judges/me - Récupérer les infos du jury connecté
 router.get('/me', authenticateJudge, async (req, res) => {

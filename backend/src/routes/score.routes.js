@@ -20,7 +20,7 @@ const authenticateJudge = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'votre_secret_jwt');
     
     // Vérifier que c'est bien un jury
-    if (decoded.role !== 'judge') {
+    if (decoded.type !== 'judge') {
       return res.status(403).json({
         success: false,
         message: 'Accès réservé aux jurys'
