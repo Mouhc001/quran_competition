@@ -4,6 +4,7 @@ import bodyParser from 'body-parser';
 import { Pool } from 'pg';
 import bcrypt from 'bcrypt';
 import dotenv from 'dotenv';
+import adminRoutes from './src/routes/admin.routes.js'; 
 
 dotenv.config();
 
@@ -73,6 +74,7 @@ async function createAdminIfNone() {
 // Routes
 app.get('/', (req, res) => res.send('API is running'));
 app.use('/api/auth', authRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Lancement serveur
 (async () => {
