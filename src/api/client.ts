@@ -18,10 +18,7 @@ api.interceptors.request.use((config) => {
   if (
     config.url?.includes('/admin/') || 
     config.url?.includes('/auth/admin/') ||
-    config.url?.includes('/qualification/') ||
-    config.url?.includes('/next') ||          // ← AJOUTE ÇA !
-    config.url?.includes('/dashboard') ||     // ← AJOUTE ÇA !
-    config.url?.includes('/reports/') 
+    config.url?.includes('/qualification/')
   ) {
     token = localStorage.getItem('admin_token');
     console.log('👑 Route ADMIN - Token:', token ? '✅' : '❌');

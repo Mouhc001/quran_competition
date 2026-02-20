@@ -10,7 +10,7 @@ import {
   Eye, EyeOff, ClipboardList
 } from 'lucide-react';
 
-// Interface pour la réponse API (adaptée au nouveau backend)
+// Interface pour la réponse API
 interface QuestionScore {
   question_number: number;
   recitation_score: number;
@@ -25,14 +25,8 @@ interface JudgeScore {
   judge_id: string;
   judge_name: string;
   judge_code: string;
-  judge_total: number; // Score total du jury sur 50
+  judge_total: number; // Score du jury sur 30
   questions: QuestionScore[];
-}
-
-interface QuestionAverage {
-  question_number: number;
-  average: number;
-  judges_count: number;
 }
 
 interface ScoreData {
@@ -41,11 +35,14 @@ interface ScoreData {
   registration_number: string;
   category_name: string;
   round_name: string;
-  final_score: number; // Score final sur 10
-  questions_average: QuestionAverage[]; // Moyennes par question sur 10
+  total_score: number; // Score sur 20
+  average_per_question: number; // Moyenne sur 6
+  final_score: number;
   judges_count: number;
-  judges_details?: JudgeScore[];
+  is_complete: boolean;
+  judges_needed: number;
   scores_by_judge?: JudgeScore[];
+  judges_details?: JudgeScore[];
 }
 
 const CandidateScoreDetail: React.FC = () => {
@@ -73,97 +70,135 @@ const CandidateScoreDetail: React.FC = () => {
     }
   }, [candidateId, roundId]);
 
-const fetchScoreDetail = async () => {
-  try {
-    setLoading(true);
-    
-    if (!candidateId || !roundId) {
-      toast.error('Paramètres manquants');
-      return;
-    }
+  const fetchScoreDetail = async () => {
+    try {
+      setLoading(true);
+      
+      if (!candidateId || !roundId) {
+        toast.error('Paramètres manquants');
+        return;
+      }
 
-    const scoreSummaryRes = await adminService.getCandidateScoreSummary(candidateId, roundId);
-    
-    console.log('🔍 Données brutes du backend:', scoreSummaryRes);
-    
-    if (scoreSummaryRes.success && scoreSummaryRes.data) {
-      const data = scoreSummaryRes.data;
+      // 1. Récupérer les scores calculés par le back-end via adminService
+      // Utiliser getCandidateScoreSummary qui existe dans adminService
+      const scoreSummaryRes = await adminService.getCandidateScoreSummary(candidateId, roundId);
       
-      // Gérer les moyennes par question
-      let questionsAverage = data.questions_average || [];
-      
-      // Si pas de questions_average, les calculer à partir des judges_details
-      if (questionsAverage.length === 0 && data.judges_details && data.judges_details.length > 0) {
-        console.log('📊 Calcul des moyennes à partir des judges_details');
-        const questionsMap = new Map();
+      if (scoreSummaryRes.success && scoreSummaryRes.data) {
+        const data = scoreSummaryRes.data;
         
-        data.judges_details.forEach((judge: any) => {
-          judge.questions?.forEach((q: any) => {
-            const qNum = q.question_number;
-            if (!questionsMap.has(qNum)) {
-              questionsMap.set(qNum, { total: 0, count: 0 });
+        // 2. Récupérer les scores par catégorie pour avoir le même calcul que CategoryCandidates
+        // Si on a la catégorie dans le state, on l'utilise
+        const categoryIdToUse = categoryId || data.category_id;
+        
+        if (categoryIdToUse) {
+          const categoryScoresRes = await adminService.getScoresByRoundCategory(roundId, categoryIdToUse);
+          
+          let totalScoreFromCategory = data.total_score || 0;
+          
+          // Vérifier si le score est cohérent avec CategoryCandidates
+          if (categoryScoresRes.success && categoryScoresRes.data) {
+            const candidateFromCategory = categoryScoresRes.data.find(
+              (c: any) => c.candidate_id === candidateId
+            );
+            
+            if (candidateFromCategory && candidateFromCategory.total_score !== undefined) {
+              totalScoreFromCategory = candidateFromCategory.total_score;
             }
-            const question = questionsMap.get(qNum);
-            question.total += q.question_total;
-            question.count += 1;
-          });
-        });
-        
-        questionsAverage = [];
-        for (let q = 1; q <= 5; q++) {
-          const question = questionsMap.get(q);
-          if (question) {
-            questionsAverage.push({
-              question_number: q,
-              average: question.total / question.count,
-              judges_count: question.count
-            });
-          } else {
-            questionsAverage.push({
-              question_number: q,
-              average: 0,
-              judges_count: 0
-            });
           }
+          
+          // Si total_score est > 20, c'est qu'il est sur 30, on le convertit
+          let finalTotalScore = totalScoreFromCategory;
+          if (finalTotalScore > 20) {
+            // Convertir de 30 à 20
+            finalTotalScore = (finalTotalScore / 30) * 20;
+          }
+          
+          // Calculer average_per_question si nécessaire
+          let averagePerQuestion = data.average_per_question || 0;
+          if (averagePerQuestion === 0 && finalTotalScore > 0) {
+            // Calculer à partir du score sur 20
+            averagePerQuestion = (finalTotalScore / 20) * 6;
+          }
+          
+          const scoreDataFormatted: ScoreData = {
+            candidate_id: candidateId,
+            candidate_name: data.candidate_name || candidateName || 'Candidat',
+            registration_number: data.registration_number || registrationNumber || '',
+            category_name: data.category_name || categoryName || '',
+            round_name: data.round_name || roundName || '',
+            total_score: finalTotalScore, // Score sur 20
+            average_per_question: averagePerQuestion, // Moyenne sur 6
+            final_score: Math.round(finalTotalScore * 100) / 100, // Arrondi à 2 décimales
+            judges_count: data.judges_count || 0,
+            is_complete: (data.judges_count || 0) >= 3,
+            judges_needed: Math.max(0, 3 - (data.judges_count || 0)),
+            scores_by_judge: data.judges_details || data.scores_by_judge || []
+          };
+          
+          setScoreData(scoreDataFormatted);
+        } else {
+          // Fallback si on n'a pas la catégorie
+          let totalScore = data.total_score || 0;
+          if (totalScore > 20) {
+            totalScore = (totalScore / 30) * 20;
+          }
+          
+          const scoreDataFormatted: ScoreData = {
+            candidate_id: candidateId,
+            candidate_name: data.candidate_name || candidateName || 'Candidat',
+            registration_number: data.registration_number || registrationNumber || '',
+            category_name: data.category_name || categoryName || '',
+            round_name: data.round_name || roundName || '',
+            total_score: totalScore,
+            average_per_question: data.average_per_question || 0,
+            final_score: Math.round(totalScore * 100) / 100,
+            judges_count: data.judges_count || 0,
+            is_complete: (data.judges_count || 0) >= 3,
+            judges_needed: Math.max(0, 3 - (data.judges_count || 0)),
+            scores_by_judge: data.judges_details || data.scores_by_judge || []
+          };
+          
+          setScoreData(scoreDataFormatted);
+        }
+      } else {
+        // Fallback: essayer getCandidateDetailedScores
+        const detailedRes = await adminService.getCandidateDetailedScores(candidateId, roundId);
+        
+        if (detailedRes.success && detailedRes.data) {
+          const data = detailedRes.data;
+          
+          let totalScore = data.total_score || 0;
+          if (totalScore > 20) {
+            totalScore = (totalScore / 30) * 20;
+          }
+          
+          const scoreDataFormatted: ScoreData = {
+            candidate_id: candidateId,
+            candidate_name: candidateName || 'Candidat',
+            registration_number: registrationNumber || '',
+            category_name: categoryName || '',
+            round_name: roundName || '',
+            total_score: totalScore,
+            average_per_question: data.average_per_question || 0,
+            final_score: Math.round(totalScore * 100) / 100,
+            judges_count: data.judges_count || 0,
+            is_complete: (data.judges_count || 0) >= 3,
+            judges_needed: Math.max(0, 3 - (data.judges_count || 0)),
+            scores_by_judge: data.scores_by_judge || data.judges_details || []
+          };
+          
+          setScoreData(scoreDataFormatted);
+        } else {
+          toast.error('Aucune donnée de score disponible pour ce candidat');
         }
       }
-      
-     // ✅ Calculer le score final comme la moyenne des 5 questions
-let finalScore = 0;
-if (questionsAverage.length === 5) {
-  const sum = questionsAverage.reduce((acc: number, q: QuestionAverage) => acc + q.average, 0);
-  finalScore = sum / 5;
-  console.log('🧮 Score final calculé:', { sum, finalScore });
-}
-      
-      const scoreDataFormatted: ScoreData = {
-        candidate_id: candidateId,
-        candidate_name: data.candidate_name || candidateName || 'Candidat',
-        registration_number: data.registration_number || registrationNumber || '',
-        category_name: data.category_name || categoryName || '',
-        round_name: data.round_name || roundName || '',
-        final_score: Number(finalScore.toFixed(2)),
-        questions_average: questionsAverage.map((q: any) => ({
-          question_number: q.question_number,
-          average: Number(q.average.toFixed(2)),
-          judges_count: q.judges_count
-        })),
-        judges_count: data.judges_count || 0,
-        judges_details: data.judges_details || [],
-        scores_by_judge: data.scores_by_judge || []
-      };
-      
-      setScoreData(scoreDataFormatted);
-    } else {
-      toast.error('Aucune donnée de score disponible pour ce candidat');
+    } catch (error: any) {
+      console.error('Erreur détaillée:', error);
+      toast.error(error.message || 'Erreur serveur');
+    } finally {
+      setLoading(false);
     }
-  } catch (error: any) {
-    console.error('Erreur détaillée:', error);
-    toast.error(error.message || 'Erreur serveur');
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const toggleQuestionDetailExpansion = (questionNumber: number) => {
     setExpandedQuestionDetails(prev =>
@@ -173,10 +208,10 @@ if (questionsAverage.length === 5) {
     );
   };
 
-  const calculateMaxScorePerQuestion = () => 10;
-  const calculateMaxTotalScore = () => 50;
+  const calculateMaxScorePerQuestion = () => 6;
+  const calculateMaxTotalScore = () => calculateMaxScorePerQuestion() * 5;
 
-  const getScoreColor = (score: number, maxScore: number = 10) => {
+  const getScoreColor = (score: number, maxScore: number = 20) => {
     const percentage = (score / maxScore) * 100;
     if (percentage >= 85) return 'text-green-600';
     if (percentage >= 70) return 'text-green-500';
@@ -185,8 +220,20 @@ if (questionsAverage.length === 5) {
     return 'text-red-600';
   };
 
+  const getScoreBarWidth = (score: number, maxScore: number = 20) => {
+    return `${(score / maxScore) * 100}%`;
+  };
+
   const safeToFixed = (value: number | undefined | null, decimals: number = 2) => {
     if (value === undefined || value === null || isNaN(value)) return '0.00';
+    
+    const exactValues = [0, 0.25, 0.5, 0.75, 1, 1.5, 2];
+    const exactMatch = exactValues.find(v => Math.abs(v - value) < 0.001);
+    
+    if (exactMatch !== undefined) {
+      return exactMatch.toString();
+    }
+    
     return value.toFixed(decimals);
   };
 
@@ -245,9 +292,11 @@ if (questionsAverage.length === 5) {
           const questionData = questionsByNumber[questionNumber];
           const judgeScores = questionData.judgeScores;
           
-          // Utiliser la moyenne pré-calculée par le backend si disponible
-          const questionAverage = scoreData?.questions_average.find(q => q.question_number === questionNumber);
-          const averageTotal = questionAverage ? questionAverage.average : 0;
+          // Calculer la moyenne de cette question
+          const averageTotal = judgeScores.length > 0
+            ? judgeScores.reduce((sum, js) => sum + safeParseFloat(js.question_total), 0) / judgeScores.length
+            : 0;
+          
           const maxScore = calculateMaxScorePerQuestion();
           
           return (
@@ -268,6 +317,7 @@ if (questionsAverage.length === 5) {
                       </h3>
                       <div className="flex items-center gap-3 text-sm text-gray-600">
                         <span>{judgeScores.length} jurys ont noté</span>
+                        
                       </div>
                     </div>
                   </div>
@@ -289,9 +339,10 @@ if (questionsAverage.length === 5) {
                     </div>
                   </div>
                 </div>
+                
               </div>
               
-              {/* Question Details */}
+              {/* Question Details - PAS DE LIGNE DES MOYENNES */}
               {expandedQuestionDetails.includes(questionNumber) && (
                 <div className="p-6 border-t border-gray-200">
                   <div className="flex justify-between items-center mb-4">
@@ -384,7 +435,7 @@ if (questionsAverage.length === 5) {
                                 <div className="text-lg font-bold text-gray-900">
                                   {safeToFixed(judgeScore.question_total)}
                                 </div>
-                                <div className="text-xs text-gray-500">/10</div>
+                                <div className="text-xs text-gray-500">/6</div>
                               </div>
                             </td>
                             {showComments && (
@@ -450,6 +501,15 @@ if (questionsAverage.length === 5) {
     );
   }
 
+  const judges = scoreData.scores_by_judge || scoreData.judges_details || [];
+  const totalScore = safeParseFloat(scoreData.total_score); // Score sur 20
+  const averagePerQuestion = safeParseFloat(scoreData.average_per_question); // Moyenne sur 6
+  const finalScore = safeParseFloat(scoreData.final_score); // Score final arrondi
+  const judgesCount = scoreData.judges_count || 0;
+
+  // Calcul du score brut sur 30 (pour information)
+  const totalScoreRaw = (totalScore / 20) * 30;
+
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-7xl mx-auto">
@@ -493,32 +553,25 @@ if (questionsAverage.length === 5) {
             
             <div className="text-right">
               <div className="text-4xl font-bold text-gray-900">
-                {safeToFixed(scoreData.final_score)}/10
+                {safeToFixed(totalScore)}/20
               </div>
-              <div className="text-sm text-gray-600">Score final</div>
+              <div className="text-sm text-gray-600">Score finale</div>
+              
             </div>
           </div>
         </div>
 
-        {/* Cartes des moyennes par question */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
-          {scoreData.questions_average.map((q) => (
-            <div key={q.question_number} className="bg-white rounded-lg shadow p-4">
-              <div className="text-sm text-gray-500">Question {q.question_number}</div>
-              <div className="text-2xl font-bold text-gray-900">
-                {safeToFixed(q.average)}/10
-              </div>
-              <div className="text-xs text-gray-400">{q.judges_count} jurys</div>
-            </div>
-          ))}
-        </div>
+        
+          
+            
+             
 
-        {/* Vue par question détaillée */}
+        {/* Vue par question */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
               <ClipboardList size={24} />
-              Détail des notes par jury
+              Détail par question
             </h2>
             
             <div className="flex items-center gap-4">

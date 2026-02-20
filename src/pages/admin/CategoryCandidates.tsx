@@ -72,122 +72,88 @@ const CategoryCandidates: React.FC = () => {
     }
   }, [roundId, categoryId]);
 
- const fetchData = async () => {
-  try {
-    setLoading(true);
-    
-    if (!roundId || !categoryId) {
-      toast.error('Paramètres manquants');
-      return;
-    }
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      
+      if (!roundId || !categoryId) {
+        toast.error('Paramètres manquants');
+        return;
+      }
 
-    // 1. Récupérer les candidats du round et de la catégorie
-    const candidatesRes = await adminService.getCandidatesByRound(roundId, categoryId);
-    
-    if (!candidatesRes.success) {
-      throw new Error('Erreur lors du chargement des candidats');
-    }
-
-    const candidatesData = candidatesRes.data;
-    
-    // 2. Récupérer les scores pour cette catégorie
-    // ✅ CORRECTION: Utiliser la même méthode que dans CandidateScoreDetail
-    const scoresPromises = candidatesData.map(async (candidate: any) => {
-      try {
-        // Utiliser getCandidateScoreSummary comme dans CandidateScoreDetail
-        const scoreRes = await adminService.getCandidateScoreSummary(candidate.id, roundId);
+      // 1. Récupérer les candidats avec leurs statuts
+      const candidatesRes = await adminService.getRoundCandidatesWithHistory(roundId!);
+      
+      if (candidatesRes.success) {
+        // Filtrer par catégorie
+        const filteredCandidates = candidatesRes.data.filter(
+          (candidate: any) => candidate.category_id === categoryId
+        );
         
-        if (scoreRes.success && scoreRes.data) {
-          const scoreData = scoreRes.data;
+        // 2. Récupérer les scores calculés par le back-end
+        const scoresRes = await adminService.getScoresByRoundCategory(roundId, categoryId);
+        
+        if (scoresRes.success && scoresRes.data) {
+          // Fusionner les données : statuts depuis candidatesRes, scores depuis scoresRes
+          const mergedCandidates = filteredCandidates.map((candidate: any) => {
+            // Trouver les scores calculés pour ce candidat
+            const candidateScores = scoresRes.data.find(
+              (score: any) => score.candidate_id === candidate.id
+            );
+            
+            // Si le candidat a des scores calculés, utiliser ces données
+            if (candidateScores) {
+              return {
+                ...candidate, // Garde le statut, nom, etc.
+                total_score: candidateScores.total_score || 0, // Déjà calculé par le back-end
+                judges_count: candidateScores.judges_count || 0, // Déjà calculé par le back-end
+                average_per_question: candidateScores.average_per_question || 0 // Déjà calculé par le back-end
+              };
+            } else {
+              // Pas de scores pour ce candidat
+              return {
+                ...candidate,
+                total_score: 0,
+                judges_count: 0,
+                average_per_question: 0
+              };
+            }
+          });
           
-          // Convertir le score si nécessaire (de 30 à 20)
-          let totalScore = scoreData.total_score || 0;
-          if (totalScore > 20) {
-            totalScore = (totalScore / 30) * 20;
-          }
+          setCandidates(mergedCandidates);
+        } else {
+          // Si pas de scores, utiliser seulement les candidats
+          const candidatesWithDefaultScores = filteredCandidates.map((candidate: any) => ({
+            ...candidate,
+            total_score: 0,
+            judges_count: 0,
+            average_per_question: 0
+          }));
           
-          // Calculer la moyenne par question
-          let avgPerQuestion = scoreData.average_per_question || 0;
-          if (avgPerQuestion === 0 && totalScore > 0) {
-            avgPerQuestion = (totalScore / 20) * 6;
-          }
-          
-          return {
-            candidateId: candidate.id,
-            total_score: totalScore,
-            judges_count: scoreData.judges_count || 0,
-            average_per_question: avgPerQuestion
-          };
+          setCandidates(candidatesWithDefaultScores);
         }
+      }
+      
+      // 3. Récupérer les infos de la catégorie et du tour
+      try {
+        const categoriesRes = await adminService.getAllCategories();
+        const currentCategory = categoriesRes.data.find((cat: any) => cat.id === categoryId);
+        setCategory(currentCategory || null);
+        
+        const roundsRes = await adminService.getAllRounds();
+        const currentRound = roundsRes.data.find((r: any) => r.id === roundId);
+        setRound(currentRound || null);
       } catch (error) {
-        console.error(`Erreur pour le candidat ${candidate.id}:`, error);
+        console.warn('Erreur chargement infos tour/catégorie:', error);
       }
       
-      // Retourner des valeurs par défaut en cas d'erreur
-      return {
-        candidateId: candidate.id,
-        total_score: 0,
-        judges_count: 0,
-        average_per_question: 0
-      };
-    });
-
-    // Attendre que toutes les promesses de scores soient résolues
-    const scoresResults = await Promise.all(scoresPromises);
-    
-    // Créer un map des scores par candidat
-    const scoresMap = new Map(
-      scoresResults.map(score => [score.candidateId, score])
-    );
-
-    // 3. Fusionner les données
-    const mergedCandidates = candidatesData.map((candidate: any) => {
-      const candidateScores = scoresMap.get(candidate.id) || {
-        total_score: 0,
-        judges_count: 0,
-        average_per_question: 0
-      };
-      
-      return {
-        ...candidate,
-        total_score: candidateScores.total_score,
-        judges_count: candidateScores.judges_count,
-        average_per_question: candidateScores.average_per_question
-      };
-    });
-    
-    setCandidates(mergedCandidates);
-
-    // 4. Récupérer les infos de la catégorie
-    try {
-      const categoriesRes = await adminService.getAllCategories();
-      if (categoriesRes.success && categoriesRes.data) {
-        const foundCategory = categoriesRes.data.find((cat: any) => cat.id === categoryId);
-        if (foundCategory) {
-          setCategory(foundCategory);
-        }
-      }
     } catch (error) {
-      console.error('Erreur chargement catégorie:', error);
+      console.error('Erreur chargement des données:', error);
+      toast.error('Erreur chargement des données');
+    } finally {
+      setLoading(false);
     }
-
-    // 5. Récupérer les infos du round
-    try {
-      const roundRes = await adminService.getRoundDetails(roundId);
-      if (roundRes.success && roundRes.data) {
-        setRound(roundRes.data);
-      }
-    } catch (error) {
-      console.error('Erreur chargement round:', error);
-    }
-
-  } catch (error) {
-    console.error('Erreur chargement des données:', error);
-    toast.error('Erreur chargement des données');
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   const fetchNextRound = async () => {
     try {

@@ -7,7 +7,7 @@ import {
   ArrowLeft, Trophy, Users, Award, 
   CheckCircle, BarChart, Download, 
   UserCheck, Lock, Unlock, ChevronRight,
-  Star, Target, Calendar, Hash, UserPlus
+  Star, Target, Calendar, Hash
 } from 'lucide-react';
 
 interface Round {
@@ -162,11 +162,6 @@ const RoundDetails: React.FC = () => {
     });
   };
 
-  const handleAssignJudges = () => {
-    // Naviguer vers la page d'assignation des jurys
-    navigate('/admin/judge-assignments');
-  };
-
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'Non défini';
     return new Date(dateString).toLocaleDateString('fr-FR', {
@@ -233,15 +228,6 @@ const RoundDetails: React.FC = () => {
                   </div>
                 </div>
               </div>
-              
-              {/* Bouton d'assignation même en mode lecture seule */}
-              <button
-                onClick={handleAssignJudges}
-                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-              >
-                <UserPlus size={18} />
-                Assigner les jurys
-              </button>
             </div>
             
             {round.description && (
@@ -442,16 +428,6 @@ const RoundDetails: React.FC = () => {
             </div>
             
             <div className="flex gap-3">
-              {/* ✅ BOUTON D'ASSIGNATION DES JURYS - AJOUTÉ ICI */}
-              <button
-                onClick={handleAssignJudges}
-                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-                title="Assigner les jurys aux catégories"
-              >
-                <UserPlus size={18} />
-                Assigner les jurys
-              </button>
-              
               <button
                 onClick={handleToggleActive}
                 className="flex items-center gap-2 bg-red-100 text-red-700 px-4 py-2 rounded-lg hover:bg-red-200 transition-colors"
@@ -596,6 +572,8 @@ const RoundDetails: React.FC = () => {
                     </button>
                   </div>
                 </div>
+                
+                
               </div>
             ))}
           </div>
@@ -650,18 +628,17 @@ const RoundDetails: React.FC = () => {
             </div>
           </button>
           
-          {/* ✅ CE BOUTON EST REMPLACÉ PAR CELUI EN HAUT, MAIS ON LE GARDE POUR LA COHÉRENCE */}
           <button
-            onClick={handleAssignJudges}
-            className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow text-left hover:border-purple-300"
+            onClick={() => navigate('/admin/judges')}
+            className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow text-left hover:border-green-300"
           >
             <div className="flex items-center gap-4">
-              <div className="p-3 bg-purple-100 rounded-lg">
-                <UserPlus className="text-purple-600" size={24} />
+              <div className="p-3 bg-green-100 rounded-lg">
+                <UserCheck className="text-green-600" size={24} />
               </div>
               <div>
                 <h3 className="font-semibold text-gray-900 mb-1">Assigner les jurys</h3>
-                <p className="text-sm text-gray-600">Gérer les jurys par catégorie</p>
+                <p className="text-sm text-gray-600">Gérer les jurys pour ce tour</p>
               </div>
             </div>
           </button>
@@ -680,7 +657,6 @@ const RoundDetails: React.FC = () => {
                 <li>• Cliquez sur une catégorie pour voir et noter les candidats</li>
                 <li>• Les candidats notés peuvent être qualifiés pour le tour suivant</li>
                 <li>• Un tour actif permet aux jurys d'évaluer les candidats</li>
-                <li>• <span className="font-semibold">Nouveau :</span> Assignez les jurys aux catégories via le bouton violet</li>
               </ul>
             </div>
           </div>

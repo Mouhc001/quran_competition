@@ -72,8 +72,6 @@ export interface QuestionScore {
   siffat: number;
   makharij: number;
   minorError: number;
-  surah?: number | null;      // ← Ajouté
-  ayah?: number | null;
   comment: string;
 }
 
@@ -135,23 +133,16 @@ export interface PaginatedResponse<T> {
 
 export const scoreService = {
   submit: async (candidateId: string, roundId: string, questions: QuestionScore[]) => {
-  const response = await api.post(`/scores/candidate/${candidateId}/round/${roundId}`, {
-    questions
-  });
-  return response.data;
-},
+    const response = await api.post(`/scores/candidate/${candidateId}/round/${roundId}`, {
+      questions
+    });
+    return response.data;
+  },
   
   getCandidateScores: async (candidateId: string, roundId: string) => {
     const response = await api.get(`/scores/${candidateId}/${roundId}`);
     return response.data;
   },
-
-  getJudgeScores: async (candidateId: string, roundId: string, judgeId: string) => {
-  const response = await api.get(
-    `/judges/scores/candidate/${candidateId}/round/${roundId}/judge/${judgeId}`
-  );
-  return response.data;
-},
   
   getRoundResults: async (roundId: string) => {
     const response = await api.get(`/scores/results/${roundId}`);
@@ -187,23 +178,27 @@ export const candidateService = {
 
 export const roundService = {
   getAll: async () => {
-    const response = await api.get('/judges/rounds');
+    const response = await api.get('/rounds');
     return response.data;
   },
   
   getActive: async () => {
-    const response = await api.get('/judges/rounds/active');
+    const response = await api.get('/rounds/active');
     return response.data;
   },
   
   activate: async (roundId: string) => {
-    const response = await api.put(`/judges/rounds/${roundId}/activate`);
+    const response = await api.put(`/rounds/${roundId}/activate`);
     return response.data;
   },
   
+  getNextRound: async (roundId: string) => {
+    const response = await api.get(`/rounds/${roundId}/next`);
+    return response.data;
+  },
   
   getRoundCategories: async (roundId: string) => {
-    const response = await api.get(`/judges/rounds/${roundId}/categories`);
+    const response = await api.get(`/rounds/${roundId}/categories`);
     return response.data;
   }
 };
@@ -289,23 +284,23 @@ export const adminService = {
   },
   
   getCandidateScoreSummary: async (candidateId: string, roundId: string) => {
-    const response = await api.get(`/admin/scores/candidate/${candidateId}/round/${roundId}/summary`);
+    const response = await api.get(`/scores/candidate/${candidateId}/round/${roundId}/summary`);
     return response.data;
   },
   
   getCandidateDetailedScores: async (candidateId: string, roundId: string) => {
-    const response = await api.get(`/admin/scores/candidate/${candidateId}/round/${roundId}/summary`);
+    const response = await api.get(`/scores/candidate/${candidateId}/round/${roundId}/summary`);
     return response.data;
   },
   
   // ============ SCORES PAR CATÉGORIE ============
   getCategoryScores: async (roundId: string, categoryId: string) => {
-    const response = await api.get(`/admin/scores/round/${roundId}/category/${categoryId}`);
+    const response = await api.get(`/scores/round/${roundId}/category/${categoryId}`);
     return response.data;
   },
   
   getScoresByQuestion: async (roundId: string, categoryId: string) => {
-    const response = await api.get(`/admin/scores/round/${roundId}/category/${categoryId}/questions`);
+    const response = await api.get(`/scores/round/${roundId}/category/${categoryId}/questions`);
     return response.data;
   },
   
@@ -315,7 +310,7 @@ export const adminService = {
   },
 
   getScoresByRoundCategory: async (roundId: string, categoryId: string) => {
-    const response = await api.get(`/admin/scores/round/${roundId}/category/${categoryId}`);
+    const response = await api.get(`/scores/round/${roundId}/category/${categoryId}`);
     return response.data;
   },
   
@@ -350,51 +345,13 @@ export const adminService = {
     return response.data;
   },
   
-  // assignJudgesToCategory: async (roundId: string, categoryId: string, judgeIds: string[]) => {
-  //   const response = await api.post(`/admin/rounds/${roundId}/categories/${categoryId}/judges`, {
-  //     judgeIds
-  //   });
-  //   return response.data;
-  // },
+  assignJudgesToCategory: async (roundId: string, categoryId: string, judgeIds: string[]) => {
+    const response = await api.post(`/admin/rounds/${roundId}/categories/${categoryId}/judges`, {
+      judgeIds
+    });
+    return response.data;
+  },
   
-  // Dans adminService
-getJudgeAssignments: async (roundId: string) => {
-  const response = await api.get(`/admin/judge-assignments/round/${roundId}`);
-  return response.data;
-},
-
-assignJudgeToCategory: async (judgeId: string, categoryId: string, roundId: string) => {
-  const response = await api.post('/admin/judge-assignments/assign', {
-    judgeId,
-    categoryId,
-    roundId
-  });
-  return response.data;
-},
-
-removeJudgeFromCategory: async (judgeId: string, categoryId: string, roundId: string) => {
-  const response = await api.delete('/admin/judge-assignments/remove', {
-    data: { judgeId, categoryId, roundId }
-  });
-  return response.data;
-},
-
-getRoundsForAssignment: async () => {
-  const response = await api.get('/admin/judge-assignments/rounds');
-  return response.data;
-},
-
-getJudgesForAssignment: async () => {
-  const response = await api.get('/admin/judge-assignments/judges');
-  return response.data;
-},
-
-getCategoriesForAssignment: async () => {
-  const response = await api.get('/admin/judge-assignments/categories');
-  return response.data;
-},
-// 
-// 
   // ============ CATÉGORIES ============
   getAllCategories: async () => {
     const response = await api.get('/admin/categories');
@@ -445,7 +402,7 @@ getCategoriesForAssignment: async () => {
   },
   
   getNextRound: async (roundId: string) => {
-    const response = await api.get(`/admin/rounds/${roundId}/next`);
+    const response = await api.get(`/rounds/${roundId}/next`);
     return response.data;
   },
   
@@ -471,12 +428,12 @@ getCategoriesForAssignment: async () => {
   },
   
   getRoundCandidatesWithHistory: async (roundId: string) => {
-    const response = await api.get(`/admin/qualification/rounds/${roundId}/candidates`);
+    const response = await api.get(`/qualification/rounds/${roundId}/candidates`);
     return response.data;
   },
   
   qualifyCandidatesBatch: async (roundId: string, candidateIds: string[]) => {
-    const response = await api.post(`/admin/qualification/rounds/${roundId}/qualify-batch`, {
+    const response = await api.post(`/qualification/rounds/${roundId}/qualify-batch`, {
       candidateIds
     });
     return response.data;

@@ -18,8 +18,6 @@ import CategoryCandidates from './pages/admin/CategoryCandidates';
 import CandidateScores from './pages/admin/CandidateScores';
 import CategoryScoresView from './pages/admin/scores/CategoryScoresView';
 import CandidateScoreDetail from './pages/admin/CandidateScoreDetail';
-import JudgeAssignments from './pages/admin/JudgeAssignments';
-
 
 // Créer une instance de QueryClient
 const queryClient = new QueryClient({
@@ -164,7 +162,6 @@ function App() {
               </AdminRoute>
             } />
 
-            <Route path="/admin/judge-assignments" element={<JudgeAssignments />} />
 
             
            {/* Redirection pour /admin */}
