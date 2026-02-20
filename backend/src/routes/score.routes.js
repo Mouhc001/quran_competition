@@ -1,9 +1,10 @@
-const express = require('express');
+import express from 'express';
 const router = express.Router();
-const jwt = require('jsonwebtoken');
-const Score = require('../models/Score.model');
-const Judge = require('../models/Judge.model');
-const scoreController = require('../controllers/score.controller');
+import jwt from 'jsonwebtoken';
+import Score from '../models/Score.model.js';
+import Judge from '../models/Judge.model.js';
+// import scoreController from '../controllers/score.controller.js';
+import * as scoreController from '../controllers/score.controller.js'; // Importer toutes les fonctions du controller
 
 // Middleware pour vérifier l'authentification des jurys
 const authenticateJudge = async (req, res, next) => {
@@ -171,4 +172,4 @@ router.get('/test/round/:roundId/category/:categoryId', async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

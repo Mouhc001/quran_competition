@@ -1,4 +1,4 @@
-const { query } = require('../config/database');
+import { query } from '../config/database.js';
 
 class Candidate {
   static async findAll() {
@@ -118,4 +118,4 @@ class Candidate {
   }
 }
 
-module.exports = Candidate;
+export default Candidate;

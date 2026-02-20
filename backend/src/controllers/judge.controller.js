@@ -1,5 +1,5 @@
 // backend/controllers/judge.controller.js
-const pool = require('../config/database');
+import pool from '../config/database.js';
 
 class JudgeController {
   // Récupérer les candidats du tour actif pour les jurys (seulement les derniers clones)
@@ -90,4 +90,4 @@ class JudgeController {
   }
 }
 
-module.exports = JudgeController;
+export default JudgeController;

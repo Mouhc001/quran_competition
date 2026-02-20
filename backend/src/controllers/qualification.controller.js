@@ -1,5 +1,5 @@
 // backend/controllers/qualification.controller.js - VERSION CORRIGÉE
-const pool = require('../config/database');
+import pool from '../config/database.js';
 
 class QualificationController {
   // Dans qualification.controller.js, ajoutez des logs :
@@ -787,4 +787,4 @@ static async updateCandidateStatus(req, res) {
 }
 
 
-module.exports = QualificationController;
+export default QualificationController;

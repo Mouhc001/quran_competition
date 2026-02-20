@@ -1,8 +1,8 @@
-const express = require('express');
+import express from 'express';
 const router = express.Router();
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
-const { query } = require('../config/database'); // AJOUTEZ CETTE LIGNE
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcrypt';
+import { query } from '../config/database.js';
 
 // Login admin
 router.post('/admin/login', async (req, res) => {
@@ -141,33 +141,32 @@ router.post('/judge/login', async (req, res) => {
     }
 
     const judge = result.rows[0];
-
-
+    
     console.log('👨‍⚖️ Jury trouvé:', judge.code, judge.id);
-    console.log('🔐 JWT_SECRET utilisé pour signer:', process.env.JWT_SECRET || 'your-secret-key');
 
-    // Mettre à jour last_login
-    await query(
-      'UPDATE judges SET last_login = CURRENT_TIMESTAMP WHERE id = $1',
-      [judge.id]
-    );
-
-    // GÉNÉRER LE TOKEN AVEC 'id' (pas judgeId ni adminId)
+    // 🔐 GÉNÉRER LE TOKEN AVEC type: 'judge'
     const token = jwt.sign(
       {
-        id: judge.id,           // ← CRUCIAL : middleware utilise decoded.id
+        id: judge.id,
         code: judge.code,
         name: judge.name,
-        type: 'judge'
+        type: 'judge'  // ← CRUCIAL : 'judge' pas 'admin' !
       },
-      process.env.JWT_SECRET || 'your-secret-key',
+      process.env.JWT_SECRET || 'super_secret_987654321',
       { expiresIn: '8h' }
     );
 
-    console.log('🎫 Token généré (début):', token.substring(0, 30) + '...');
-    // Décodez-le immédiatement pour vérifier
-    const justSigned = jwt.decode(token);
-    console.log('✅ Token fraîchement signé - contenu:', justSigned);
+    console.log('🎫 Token généré pour le jury');
+
+    // Mettre à jour last_login si la colonne existe
+    try {
+      await query(
+        'UPDATE judges SET last_login = CURRENT_TIMESTAMP WHERE id = $1',
+        [judge.id]
+      );
+    } catch (e) {
+      console.log('⚠️ Colonne last_login manquante, ignore');
+    }
 
     res.json({
       success: true,
@@ -178,8 +177,7 @@ router.post('/judge/login', async (req, res) => {
           id: judge.id,
           code: judge.code,
           name: judge.name,
-          is_active: judge.is_active,
-          last_login: judge.last_login
+          is_active: judge.is_active
         }
       }
     });
@@ -258,4 +256,5 @@ router.get('/judge/verify', async (req, res) => {
     });
   }
 });
-module.exports = router;
+
+export default router;

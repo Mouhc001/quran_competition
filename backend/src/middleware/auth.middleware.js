@@ -1,12 +1,11 @@
-const jwt = require('jsonwebtoken');
-const { query } = require('../config/database');
-
+import jwt from 'jsonwebtoken';
+import { query } from '../config/database.js';
 
 console.log('🔥 JWT_SECRET dans middleware:', process.env.JWT_SECRET || 'NON DÉFINI');
 console.log("🔥 Valeur directe:", process.env.JWT_SECRET);
 
 
-exports.authenticateJudge = async (req, res, next) => {
+export const authenticateJudge = async (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   
   console.log('🔑 Token reçu:', token ? token.substring(0, 20) + '...' : 'Aucun');
@@ -92,7 +91,7 @@ exports.authenticateJudge = async (req, res, next) => {
   }
 };
 
-exports.authenticateAdmin = async (req, res, next) => {
+export const authenticateAdmin = async (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   
   if (!token) {
@@ -140,7 +139,7 @@ exports.authenticateAdmin = async (req, res, next) => {
   }
 };
 
-exports.isAdmin = (req, res, next) => {
+export const isAdmin = (req, res, next) => {
   if (req.user?.type !== 'admin') {
     return res.status(403).json({
       success: false,

@@ -1,7 +1,7 @@
-const express = require('express');
+import express from 'express';
 const router = express.Router();
-const Round = require('../models/Round.model');
-const { authenticateAdmin } = require('../middleware/auth.middleware.js');
+import Round from '../models/Round.model.js';
+import { authenticateAdmin } from '../middleware/auth.middleware.js';
 
 // Route pour récupérer tous les tours
 router.get('/', async (req, res) => {
@@ -514,4 +514,5 @@ router.post('/:id/initialize-from-previous', authenticateAdmin, async (req, res)
 });
 
 
-module.exports = router;
+
+export default router;

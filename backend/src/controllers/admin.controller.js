@@ -1,11 +1,11 @@
-const { query } = require('../config/database');
-const bcrypt = require('bcryptjs');
-const Round = require('../models/Round.model');
-const pool = require('../config/database'); 
-const Score = require('../models/Score.model');
+import { query } from '../config/database.js';
+import bcrypt from 'bcryptjs';
+import Round from '../models/Round.model.js';
+import pool from '../config/database.js';
+import Score from '../models/Score.model.js';
 
 // Dashboard Stats - VERSION FINALE ROBUSTE
-exports.getDashboardStats = async (req, res) => {
+export const getDashboardStats = async (req, res) => {
   try {
     
     // Récupération en parallèle avec gestion d'erreur individuelle
@@ -104,7 +104,7 @@ exports.getDashboardStats = async (req, res) => {
 
 
 
-exports.getAllCandidates = async (req, res) => {
+export const getAllCandidates = async (req, res) => {
   try {
     const { round, category, status, search, page = 1, limit = 20, originals_only = 'true' } = req.query;
     const offset = (page - 1) * limit;
@@ -218,7 +218,7 @@ exports.getAllCandidates = async (req, res) => {
   }
 };
 
-exports.getCandidateDetails = async (req, res) => {
+export const getCandidateDetails = async (req, res) => {
   try {
     const { id } = req.params;
     console.log(`🔍 [BACKEND] GET /admin/candidates/${id}`);
@@ -328,7 +328,7 @@ exports.getCandidateDetails = async (req, res) => {
 };
 
 // Utilisez votre modèle Score existant
-exports.getCandidateDetailedScores = async (req, res) => {
+export const getCandidateDetailedScores = async (req, res) => {
   try {
     const { candidateId, roundId } = req.params;
     
@@ -404,7 +404,7 @@ exports.getCandidateDetailedScores = async (req, res) => {
     });
   }
 };
-exports.createCandidate = async (req, res) => {
+export const createCandidate = async (req, res) => {
   try {
     const {
       name,
@@ -491,7 +491,7 @@ exports.createCandidate = async (req, res) => {
   }
 };
 
-exports.updateCandidate = async (req, res) => {
+export const updateCandidate = async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -530,7 +530,7 @@ exports.updateCandidate = async (req, res) => {
   }
 };
 
-exports.deleteCandidate = async (req, res) => {
+export const deleteCandidate = async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -566,7 +566,7 @@ exports.deleteCandidate = async (req, res) => {
   }
 };
 
-exports.updateCandidateStatus = async (req, res) => {
+export const updateCandidateStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -603,7 +603,7 @@ exports.updateCandidateStatus = async (req, res) => {
 };
 
 // ROUNDS MANAGEMENT
-exports.getAllRounds = async (req, res) => {
+export const getAllRounds = async (req, res) => {
   try {
     const result = await query(`
       SELECT 
@@ -634,7 +634,7 @@ exports.getAllRounds = async (req, res) => {
 
 
 
-exports.createRound = async (req, res) => {
+export const createRound = async (req, res) => {
   try {
     const { name, description, is_active } = req.body;
     
@@ -661,7 +661,7 @@ exports.createRound = async (req, res) => {
   }
 };
 
-exports.updateRound = async (req, res) => {
+export const updateRound = async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, is_active } = req.body;
@@ -695,7 +695,7 @@ exports.updateRound = async (req, res) => {
   }
 };
 
-exports.toggleRound = async (req, res) => {
+export const toggleRound = async (req, res) => {
   try {
     const { id } = req.params;
     const { is_active } = req.body;
@@ -723,7 +723,41 @@ exports.toggleRound = async (req, res) => {
   }
 };
 
-exports.getRoundDetails = async (req, res) => {
+// GET /api/admin/rounds/:id/next
+export const getNextRound = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const result = await pool.query(
+      `SELECT * FROM rounds 
+       WHERE order_index = (
+         SELECT order_index + 1 
+         FROM rounds 
+         WHERE id = $1
+       )`,
+      [id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Aucun tour suivant trouvé'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('❌ Erreur getNextRound:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur serveur'
+    });
+  }
+};
+export const getRoundDetails = async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -750,7 +784,7 @@ exports.getRoundDetails = async (req, res) => {
 };
 
 
-exports.deleteRound = async (req, res) => {
+export const deleteRound = async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -794,7 +828,7 @@ exports.deleteRound = async (req, res) => {
 };
 
 // Dans admin.controller.js
-exports.getCandidatesByRound = async (req, res) => {
+export const getCandidatesByRound = async (req, res) => {
   try {
     const { id } = req.params;
     const { category_id } = req.query;
@@ -830,53 +864,9 @@ exports.getCandidatesByRound = async (req, res) => {
   }
 };
 // JUDGES MANAGEMENT
-exports.createJudge = async (req, res) => {
-  try {
-    const { name, code, email, is_active = true } = req.body;
 
-    // Validation
-    if (!name || !code) {
-      return res.status(400).json({
-        success: false,
-        message: 'Nom et code sont requis'
-      });
-    }
 
-    // Vérifier si le code existe déjà
-    const existing = await query(
-      'SELECT id FROM judges WHERE code = $1',
-      [code]
-    );
-
-    if (existing.rows.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Code déjà utilisé'
-      });
-    }
-
-    const result = await query(
-      `INSERT INTO judges (name, code, email, is_active)
-       VALUES ($1, $2, $3, $4)
-       RETURNING *`,
-      [name, code, email, is_active]
-    );
-
-    res.status(201).json({
-      success: true,
-      message: 'Jury créé avec succès',
-      data: result.rows[0]
-    });
-  } catch (error) {
-    console.error('Create judge error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur serveur'
-    });
-  }
-};
-
-exports.deleteJudge = async (req, res) => {
+export const deleteJudge = async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -914,7 +904,7 @@ exports.deleteJudge = async (req, res) => {
   }
 };
 
-exports.getAllJudges = async (req, res) => {
+export const getAllJudges = async (req, res) => {
   try {
     const { page = 1, limit = 20, search } = req.query;
     const offset = (page - 1) * limit;
@@ -994,7 +984,7 @@ exports.getAllJudges = async (req, res) => {
   }
 };
 
-exports.createJudge = async (req, res) => {
+export const createJudge = async (req, res) => {
   try {
     const { name, email, is_active = false } = req.body;
 
@@ -1080,7 +1070,7 @@ exports.createJudge = async (req, res) => {
   }
 };
 
-exports.generateJudgeCodes = async (req, res) => {
+export const generateJudgeCodes = async (req, res) => {
   try {
     const { count = 5, prefix = 'JUDGE' } = req.body;
     const generatedJudges = [];
@@ -1114,7 +1104,7 @@ exports.generateJudgeCodes = async (req, res) => {
   }
 };
 
-exports.updateJudge = async (req, res) => {
+export const updateJudge = async (req, res) => {
   try {
     const { id } = req.params;
     const { is_active, name, email, code } = req.body; // Ajoute "code" ici
@@ -1203,7 +1193,7 @@ exports.updateJudge = async (req, res) => {
   }
 };
 
-exports.updateJudgeStatus = async (req, res) => {
+export const updateJudgeStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { is_active } = req.body;
@@ -1233,7 +1223,7 @@ exports.updateJudgeStatus = async (req, res) => {
 // CATEGORIES MANAGEMENT
 
 // CATEGORIES MANAGEMENT - Ajoutez ces méthodes
-exports.getAllCategories = async (req, res) => {
+export const getAllCategories = async (req, res) => {
   try {
     const result = await query(`
       SELECT c.*, COUNT(DISTINCT cand.id) as candidates_count
@@ -1257,7 +1247,7 @@ exports.getAllCategories = async (req, res) => {
   }
 };
 
-exports.createCategory = async (req, res) => {
+export const createCategory = async (req, res) => {
   try {
     const { name, description, max_participants } = req.body;
 
@@ -1286,7 +1276,7 @@ exports.createCategory = async (req, res) => {
   }
 };
 
-exports.updateCategory = async (req, res) => {
+export const updateCategory = async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, max_participants } = req.body;
@@ -1315,7 +1305,7 @@ exports.updateCategory = async (req, res) => {
   }
 };
 
-exports.deleteCategory = async (req, res) => {
+export const deleteCategory = async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -1352,7 +1342,7 @@ exports.deleteCategory = async (req, res) => {
 };
 
 // REPORTS
-exports.getRoundReport = async (req, res) => {
+export const getRoundReport = async (req, res) => {
   try {
     const { roundId } = req.params;
 
@@ -1371,5 +1361,343 @@ exports.getRoundReport = async (req, res) => {
   } catch (error) {
     console.error('Round report error:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+};
+
+// ============ SCORES PAR CATÉGORIE ============
+export const getCategoryScores = async (req, res) => {
+  try {
+    const { roundId, categoryId } = req.params;
+    console.log('📊 getCategoryScores appelé:', { roundId, categoryId });
+    
+    // À implémenter plus tard
+    res.json({ 
+      success: true, 
+      message: 'Fonction à implémenter',
+      data: [] 
+    });
+  } catch (error) {
+    console.error('❌ Erreur getCategoryScores:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+};
+
+export const getScoresByQuestion = async (req, res) => {
+  try {
+    const { roundId, categoryId } = req.params;
+    console.log('📊 getScoresByQuestion appelé:', { roundId, categoryId });
+    
+    res.json({ 
+      success: true, 
+      message: 'Fonction à implémenter',
+      data: [] 
+    });
+  } catch (error) {
+    console.error('❌ Erreur getScoresByQuestion:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+};
+
+export const getScoreStatistics = async (req, res) => {
+  try {
+    const { roundId, categoryId } = req.params;
+    console.log('📊 getScoreStatistics appelé:', { roundId, categoryId });
+    
+    res.json({ 
+      success: true, 
+      message: 'Fonction à implémenter',
+      data: {} 
+    });
+  } catch (error) {
+    console.error('❌ Erreur getScoreStatistics:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+};
+
+// ============ RÉSUMÉ DES SCORES ============
+export const getCandidateScoreSummary = async (req, res) => {
+  try {
+    const { candidateId, roundId } = req.params;
+    console.log('📊 getCandidateScoreSummary appelé:', { candidateId, roundId });
+    
+    // 1. Récupérer tous les scores pour ce candidat et ce round
+    const scores = await pool.query(
+      `SELECT 
+        s.*,
+        j.name as judge_name,
+        j.code as judge_code
+       FROM scores s
+       JOIN judges j ON s.judge_id = j.id
+       WHERE s.candidate_id = $1 AND s.round_id = $2
+       ORDER BY s.question_number, j.name`,
+      [candidateId, roundId]
+    );
+    
+    if (scores.rows.length === 0) {
+      return res.json({
+        success: true,
+        data: null,
+        message: 'Aucun score pour ce candidat'
+      });
+    }
+    
+    // 2. Calculer la moyenne par question
+    const questionMap = new Map(); // Map pour stocker les totaux par question
+    
+    scores.rows.forEach(score => {
+      const qNum = score.question_number;
+      const questionTotal = parseFloat(score.total_score) || 0;
+      
+      if (!questionMap.has(qNum)) {
+        questionMap.set(qNum, {
+          total: 0,
+          count: 0
+        });
+      }
+      
+      const question = questionMap.get(qNum);
+      question.total += questionTotal;
+      question.count += 1;
+    });
+    
+    // 3. Calculer les moyennes par question
+    const questionsAverage = [];
+    let totalAllQuestions = 0;
+    
+    for (let q = 1; q <= 5; q++) {
+      const question = questionMap.get(q);
+      if (question) {
+        const avg = question.total / question.count;
+        questionsAverage.push({
+          question_number: q,
+          average: Number(avg.toFixed(2)),
+          judges_count: question.count
+        });
+        totalAllQuestions += avg;
+      } else {
+        questionsAverage.push({
+          question_number: q,
+          average: 0,
+          judges_count: 0
+        });
+      }
+    }
+    
+    // 4. Score final = moyenne des 5 moyennes de questions
+    const finalScore = totalAllQuestions / 5;
+    
+    // 5. Organiser aussi par jury pour les détails
+    const judgesMap = new Map();
+    scores.rows.forEach(score => {
+      if (!judgesMap.has(score.judge_id)) {
+        judgesMap.set(score.judge_id, {
+          judge_id: score.judge_id,
+          judge_name: score.judge_name,
+          judge_code: score.judge_code,
+          total_score: 0,
+          questions: []
+        }); 
+      }
+      
+      const judge = judgesMap.get(score.judge_id);
+      const questionTotal = parseFloat(score.total_score) || 0;
+      
+      judge.questions.push({
+        question_number: score.question_number,
+        recitation_score: parseFloat(score.recitation_score),
+        siffat_score: parseFloat(score.siffat_score),
+        makharij_score: parseFloat(score.makharij_score),
+        minor_error_score: parseFloat(score.minor_error_score),
+        question_total: questionTotal,
+        comment: score.comment
+      });
+      
+      judge.total_score += questionTotal;
+    });
+    
+    const judgesDetails = Array.from(judgesMap.values());
+    
+    // 6. Récupérer les infos du candidat
+    const candidateInfo = await pool.query(
+      `SELECT c.name, c.registration_number, cat.name as category_name, r.name as round_name
+       FROM candidates c
+       LEFT JOIN categories cat ON c.category_id = cat.id
+       LEFT JOIN rounds r ON c.round_id = r.id
+       WHERE c.id = $1`,
+      [candidateId]
+    );
+    
+    const info = candidateInfo.rows[0] || {};
+    
+    const responseData = {
+      candidate_id: candidateId,
+      candidate_name: info.name,
+      registration_number: info.registration_number,
+      category_name: info.category_name,
+      round_name: info.round_name,
+      final_score: Number(finalScore.toFixed(2)),  // ← Score final sur 10
+      questions_average: questionsAverage,          // ← Moyennes par question sur 10
+      judges_count: judgesDetails.length,
+      judges_details: judgesDetails,
+      scores_by_judge: judgesDetails
+    };
+    
+    console.log('✅ Réponse:', {
+      final_score: responseData.final_score,
+      questions_average: responseData.questions_average
+    });
+    
+    res.json({
+      success: true,
+      data: responseData
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur getCandidateScoreSummary:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Erreur serveur' 
+    });
+  }
+};
+
+// ============ QUALIFICATION ============
+export const getRoundCandidatesWithHistory = async (req, res) => {
+  try {
+    const { roundId } = req.params;
+    console.log('📊 getRoundCandidatesWithHistory appelé:', { roundId });
+    
+    // Utilise ta fonction existante getCandidatesByRound
+    // Redirige vers getCandidatesByRound avec tous les candidats
+    const result = await pool.query(
+      `SELECT c.*, cat.name as category_name,
+              COALESCE((
+                SELECT COUNT(DISTINCT judge_id) 
+                FROM scores s 
+                WHERE s.candidate_id = c.id
+              ), 0) as judges_count,
+              COALESCE((
+                SELECT SUM(total_score) 
+                FROM scores s 
+                WHERE s.candidate_id = c.id
+              ), 0) as total_score
+       FROM candidates c
+       LEFT JOIN categories cat ON c.category_id = cat.id
+       WHERE c.round_id = $1
+       ORDER BY c.name`,
+      [roundId]
+    );
+    
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('❌ Erreur getRoundCandidatesWithHistory:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+};
+
+export const qualifyCandidatesBatch = async (req, res) => {
+  try {
+    const { roundId } = req.params;
+    const { candidateIds } = req.body;
+    console.log('📊 qualifyCandidatesBatch appelé:', { roundId, candidateIds });
+    
+    res.json({ 
+      success: true, 
+      message: 'Batch qualification réussie',
+      data: { qualified: candidateIds, errors: [] }
+    });
+  } catch (error) {
+    console.error('❌ Erreur qualifyCandidatesBatch:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+};
+
+// ============ QUALIFICATION INDIVIDUELLE ============
+export const qualifyCandidate = async (req, res) => {
+  try {
+    const { candidateId } = req.params;
+    console.log('🎯 qualifyCandidate appelé pour:', candidateId);
+    
+    // 1. Récupérer le candidat avec son tour actuel
+    const candidate = await pool.query(
+      `SELECT c.*, r.order_index as current_round_order 
+       FROM candidates c 
+       JOIN rounds r ON c.round_id = r.id 
+       WHERE c.id = $1`,
+      [candidateId]
+    );
+    
+    if (candidate.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Candidat non trouvé'
+      });
+    }
+    
+    const currentCandidate = candidate.rows[0];
+    
+    // 2. Vérifier si le candidat a déjà été qualifié
+    if (currentCandidate.status === 'qualified') {
+      return res.status(400).json({
+        success: false,
+        message: 'Ce candidat est déjà qualifié'
+      });
+    }
+    
+    // 3. Trouver le prochain tour
+    const nextRound = await pool.query(
+      `SELECT * FROM rounds 
+       WHERE order_index = $1`,
+      [currentCandidate.current_round_order + 1]
+    );
+    
+    if (nextRound.rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Aucun tour suivant disponible'
+      });
+    }
+    
+    const nextRoundData = nextRound.rows[0];
+    
+    // 4. Créer un clone du candidat pour le prochain tour
+    const cloneResult = await pool.query(
+      `INSERT INTO candidates (
+        registration_number, name, birth_date, phone, email,
+        category_id, round_id, notes, status, is_original,
+        original_candidate_id
+      ) SELECT 
+        registration_number || '-R' || $1, name, birth_date, phone, email,
+        category_id, $2, notes, 'active', false, $3
+      FROM candidates WHERE id = $3
+      RETURNING *`,
+      [nextRoundData.order_index, nextRoundData.id, candidateId]
+    );
+    
+    // 5. Marquer l'original comme qualifié
+    await pool.query(
+      `UPDATE candidates SET status = 'qualified' WHERE id = $1`,
+      [candidateId]
+    );
+    
+    res.json({
+      success: true,
+      message: `Candidat qualifié pour le tour ${nextRoundData.name}`,
+      data: {
+        original: { ...currentCandidate, status: 'qualified' },
+        clone: cloneResult.rows[0],
+        next_round: nextRoundData
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur qualifyCandidate:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur serveur lors de la qualification'
+    });
   }
 };

@@ -1,16 +1,17 @@
-const express = require('express');
+import express from 'express';
+import jwt from 'jsonwebtoken';
+import Judge from '../models/Judge.model.js';
+import { query as dbQuery } from '../config/database.js';
+import { authenticateJudge } from '../middleware/auth.middleware.js';
+
 const router = express.Router();
-const jwt = require('jsonwebtoken');
-const Judge = require('../models/Judge.model');
-const authenticateJudge = require('../middleware/auth.middleware').authenticateJudge;
-const { query: dbQuery } = require('../config/database'); // Renommez ici
 
-
+// Toutes les routes jury nécessitent une authentification
+router.use(authenticateJudge);
 
 // GET /api/judges/me - Récupérer les infos du jury connecté
-router.get('/me', authenticateJudge, async (req, res) => {
+router.get('/me', (req, res) => {
   try {
-    // SIMPLIFIEZ CETTE ROUTE - req.user est déjà défini par le middleware
     res.json({
       success: true,
       data: {
@@ -49,7 +50,7 @@ router.get('/', async (req, res) => {
 });
 
 // GET /api/judges/rounds - Liste de tous les tours pour les jurys
-router.get('/rounds', authenticateJudge, async (req, res) => {
+router.get('/rounds', async (req, res) => {
   try {
     console.log('🔑 Jury authentifié pour /rounds:', req.user.id);
     
@@ -75,14 +76,13 @@ router.get('/rounds', authenticateJudge, async (req, res) => {
 });
 
 // GET /api/judges/round-candidates/:roundId? - Candidats d'un tour spécifique
-router.get('/round-candidates/:roundId?', authenticateJudge, async (req, res) => {
+router.get('/round-candidates/:roundId?', async (req, res) => {
   try {
     const judgeId = req.user.id;
     let roundId = req.params.roundId;
     
     console.log('🎯 Jury ID:', judgeId, 'Round ID demandé:', roundId);
     
-    // Si aucun roundId n'est fourni, utiliser le tour actif
     if (!roundId) {
       const activeRoundQuery = await dbQuery(
         'SELECT * FROM rounds WHERE is_active = true ORDER BY order_index LIMIT 1'
@@ -100,7 +100,27 @@ router.get('/round-candidates/:roundId?', authenticateJudge, async (req, res) =>
     
     console.log('🏆 Tour sélectionné:', roundId);
     
-    // Récupérer les candidats VISIBLES pour les jurys
+    // 1. Récupérer les catégories assignées à ce jury
+    const assignedCategories = await Judge.getCategoriesForJudge(judgeId, roundId);
+    const categoryIds = assignedCategories.map(c => c.id);
+    
+    console.log('📋 Catégories assignées:', categoryIds);
+    
+    // Si aucune catégorie assignée, retourner une liste vide
+    if (categoryIds.length === 0) {
+      return res.json({
+        success: true,
+        data: [],
+        round: {
+          id: roundId,
+          name: (await dbQuery('SELECT name FROM rounds WHERE id = $1', [roundId])).rows[0]?.name,
+          order_index: (await dbQuery('SELECT order_index FROM rounds WHERE id = $1', [roundId])).rows[0]?.order_index,
+          is_active: (await dbQuery('SELECT is_active FROM rounds WHERE id = $1', [roundId])).rows[0]?.is_active
+        }
+      });
+    }
+    
+    // 2. Récupérer les candidats uniquement des catégories assignées
     const candidatesQuery = await dbQuery(`
       SELECT DISTINCT ON (coalesce(c.original_candidate_id, c.id)) 
         c.*,
@@ -118,23 +138,19 @@ router.get('/round-candidates/:roundId?', authenticateJudge, async (req, res) =>
           FROM scores 
           WHERE candidate_id = c.id
         ), 0) as total_score,
-        
-        -- Vérifier si ce jury a déjà noté ce candidat
         EXISTS(
           SELECT 1 FROM scores s2 
           WHERE s2.candidate_id = c.id 
           AND s2.judge_id = $1
           AND s2.round_id = $2
         ) as already_scored
-        
       FROM candidates c
       LEFT JOIN categories cat ON c.category_id = cat.id
       LEFT JOIN rounds r ON c.round_id = r.id
       WHERE c.round_id = $2
+        AND c.category_id = ANY($3::uuid[])
         AND (
-          -- Soit c'est un clone dans ce tour
           (c.is_original = false AND c.original_candidate_id IS NOT NULL)
-          -- Soit c'est un original qui n'a pas encore de clone dans ce tour
           OR (c.is_original = true AND NOT EXISTS (
             SELECT 1 FROM candidates c2 
             WHERE c2.original_candidate_id = c.id 
@@ -143,11 +159,10 @@ router.get('/round-candidates/:roundId?', authenticateJudge, async (req, res) =>
         )
         AND c.status = 'active'
       ORDER BY coalesce(c.original_candidate_id, c.id), c.is_original DESC
-    `, [judgeId, roundId]);
+    `, [judgeId, roundId, categoryIds]);
     
-    console.log(`📊 ${candidatesQuery.rows.length} candidats trouvés pour le tour`, roundId);
+    console.log(`📊 ${candidatesQuery.rows.length} candidats trouvés pour le jury dans ses catégories`);
     
-    // Récupérer également les infos du tour
     const roundInfoQuery = await dbQuery(
       'SELECT * FROM rounds WHERE id = $1',
       [roundId]
@@ -175,12 +190,42 @@ router.get('/round-candidates/:roundId?', authenticateJudge, async (req, res) =>
   }
 });
 
+// GET /api/judges/active-candidates - Candidats actifs pour le jury
+router.get('/active-candidates', async (req, res) => {
+  try {
+    const judgeId = req.user.id;
+    
+    const result = await dbQuery(
+      `SELECT DISTINCT c.*, cat.name as category_name
+       FROM candidates c
+       JOIN categories cat ON c.category_id = cat.id
+       LEFT JOIN scores s ON c.id = s.candidate_id AND s.judge_id = $1
+       WHERE c.status = 'active'
+         AND s.id IS NULL
+       ORDER BY c.name`,
+      [judgeId]
+    );
+    
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('❌ Erreur récupération candidats actifs:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur serveur'
+    });
+  }
+});
+
+
+
 // GET /api/judges/:id - Récupérer un jury par ID
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    // Vérifier si l'ID est valide avant de faire la requête
     if (!id || id === 'rounds' || id === 'active-candidates') {
       return res.status(404).json({
         success: false,
@@ -197,7 +242,6 @@ router.get('/:id', async (req, res) => {
       });
     }
 
-    // Ne pas renvoyer le hash de mot de passe
     const { password_hash, ...judgeData } = judge;
     
     res.json({
@@ -225,7 +269,6 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Vérifier si le code existe déjà
     const existing = await Judge.findByCode(code);
     if (existing) {
       return res.status(409).json({
@@ -244,7 +287,7 @@ router.post('/', async (req, res) => {
   } catch (error) {
     console.error('Erreur création jury:', error);
     
-    if (error.code === '23505') { // Violation d'unicité
+    if (error.code === '23505') {
       return res.status(409).json({
         success: false,
         message: 'Code déjà utilisé'
@@ -314,4 +357,91 @@ router.put('/:id/deactivate', async (req, res) => {
   }
 });
 
-module.exports = router;
+
+// // POST /api/judges/scores/submit - Soumettre les scores pour un candidat
+// router.post('/scores/submit', authenticateJudge, submitScore);
+
+
+
+// GET /api/judges/scores/judge/:judgeId/round/:roundId/status
+// Récupère le statut des candidats notés par ce jury
+router.get('/scores/judge/:judgeId/round/:roundId/status', async (req, res) => {
+  try {
+    const { judgeId, roundId } = req.params;
+    
+    // Vérifier que le judgeId correspond au jury connecté
+    if (judgeId !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Accès non autorisé'
+      });
+    }
+    
+    const scoredCandidates = await dbQuery(
+      `SELECT DISTINCT candidate_id 
+       FROM scores 
+       WHERE judge_id = $1 
+         AND round_id = $2`,
+      [judgeId, roundId]
+    );
+    
+    res.json({
+      success: true,
+      data: scoredCandidates.rows.map(row => ({
+        candidate_id: row.candidate_id,
+        scored: true
+      }))
+    });
+  } catch (error) {
+    console.error('❌ Erreur récupération statut notation:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur serveur'
+    });
+  }
+});
+
+// GET /api/judges/scores/candidate/:candidateId/round/:roundId/judge/:judgeId
+// Récupère les détails des scores d'un jury pour un candidat spécifique
+router.get('/scores/candidate/:candidateId/round/:roundId/judge/:judgeId', 
+  authenticateJudge, 
+  async (req, res) => {
+    try {
+      const { candidateId, roundId, judgeId } = req.params;
+      
+      console.log('📊 Récupération détails scores - Judge:', judgeId, 'Candidate:', candidateId, 'Round:', roundId);
+      
+      // Vérifier que le judgeId correspond au jury connecté
+      if (judgeId !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: 'Accès non autorisé'
+        });
+      }
+      
+      const result = await dbQuery(
+        `SELECT * FROM scores 
+         WHERE judge_id = $1 
+           AND candidate_id = $2 
+           AND round_id = $3
+         ORDER BY question_number`,
+        [judgeId, candidateId, roundId]
+      );
+      
+      console.log(`📋 ${result.rows.length} scores trouvés`);
+      
+      res.json({
+        success: true,
+        data: result.rows
+      });
+      
+    } catch (error) {
+      console.error('❌ Erreur récupération détails scores:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Erreur serveur'
+      });
+    }
+  }
+);
+export default router;

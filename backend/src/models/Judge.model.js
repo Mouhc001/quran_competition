@@ -1,4 +1,4 @@
-const { query } = require('../config/database');
+import { query } from '../config/database.js';
 
 class Judge {
   static async findAll() {
@@ -95,6 +95,132 @@ class Judge {
     );
     return result.rows[0];
   }
+
+  // Dans Judge.model.js - ajouter ces méthodes à la fin de la classe
+
+// Assigner un jury à une catégorie pour un tour
+static async assignToCategory(judgeId, categoryId, roundId, adminId) {
+  console.log('📡 Judge.assignToCategory appelé:', { judgeId, categoryId, roundId, adminId });
+  try {
+    const result = await query(
+      `INSERT INTO judge_category_assignments (judge_id, category_id, round_id, assigned_by)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (judge_id, category_id, round_id) DO NOTHING
+       RETURNING *`,
+      [judgeId, categoryId, roundId, adminId]
+    );
+    console.log('✅ Résultat assignToCategory:', result.rows[0]);
+    return result.rows[0];
+  } catch (error) {
+    console.error('❌ Erreur dans assignToCategory:', error);
+    throw error;
+  }
 }
 
-module.exports = Judge;
+// Retirer un jury d'une catégorie
+static async removeFromCategory(judgeId, categoryId, roundId) {
+  console.log('📡 Judge.removeFromCategory appelé:', { judgeId, categoryId, roundId });
+  try {
+    await query(
+      `DELETE FROM judge_category_assignments 
+       WHERE judge_id = $1 AND category_id = $2 AND round_id = $3`,
+      [judgeId, categoryId, roundId]
+    );
+    console.log('✅ Jury retiré avec succès');
+    return true;
+  } catch (error) {
+    console.error('❌ Erreur dans removeFromCategory:', error);
+    throw error;
+  }
+}
+
+// Récupérer toutes les catégories assignées à un jury pour un tour
+static async getCategoriesForJudge(judgeId, roundId) {
+  console.log('📡 Judge.getCategoriesForJudge appelé:', { judgeId, roundId });
+  try {
+    const result = await query(
+      `SELECT c.* 
+       FROM categories c
+       JOIN judge_category_assignments jca ON c.id = jca.category_id
+       WHERE jca.judge_id = $1 AND jca.round_id = $2
+       ORDER BY c.name`,
+      [judgeId, roundId]
+    );
+    console.log(`📊 ${result.rows.length} catégories trouvées pour le jury`);
+    return result.rows;
+  } catch (error) {
+    console.error('❌ Erreur dans getCategoriesForJudge:', error);
+    throw error;
+  }
+}
+
+// Récupérer tous les jurys assignés à une catégorie pour un tour
+static async getJudgesForCategory(categoryId, roundId) {
+  console.log('📡 Judge.getJudgesForCategory appelé:', { categoryId, roundId });
+  try {
+    const result = await query(
+      `SELECT j.* 
+       FROM judges j
+       JOIN judge_category_assignments jca ON j.id = jca.judge_id
+       WHERE jca.category_id = $1 AND jca.round_id = $2
+       ORDER BY j.name`,
+      [categoryId, roundId]
+    );
+    return result.rows;
+  } catch (error) {
+    console.error('❌ Erreur dans getJudgesForCategory:', error);
+    throw error;
+  }
+}
+
+// Récupérer toutes les assignations pour un tour
+static async getAssignmentsByRound(roundId) {
+  console.log('📡 Judge.getAssignmentsByRound appelé pour round:', roundId);
+  try {
+    const result = await query(
+      `SELECT 
+          jca.id,
+          jca.judge_id,
+          j.name as judge_name,
+          j.code as judge_code,
+          jca.category_id,
+          c.name as category_name,
+          c.hizb_count,
+          jca.assigned_at,
+          a.name as assigned_by_name
+       FROM judge_category_assignments jca
+       JOIN judges j ON jca.judge_id = j.id
+       JOIN categories c ON jca.category_id = c.id
+       LEFT JOIN admins a ON jca.assigned_by = a.id
+       WHERE jca.round_id = $1
+       ORDER BY c.name, j.name`,
+      [roundId]
+    );
+    console.log(`📊 ${result.rows.length} assignations trouvées`);
+    return result.rows;
+  } catch (error) {
+    console.error('❌ Erreur dans getAssignmentsByRound:', error);
+    throw error;
+  }
+}
+
+// Vérifier si un jury est assigné à une catégorie
+static async isJudgeAssignedToCategory(judgeId, categoryId, roundId) {
+  console.log('📡 Judge.isJudgeAssignedToCategory appelé:', { judgeId, categoryId, roundId });
+  try {
+    const result = await query(
+      `SELECT EXISTS(
+         SELECT 1 FROM judge_category_assignments 
+         WHERE judge_id = $1 AND category_id = $2 AND round_id = $3
+       ) as assigned`,
+      [judgeId, categoryId, roundId]
+    );
+    return result.rows[0].assigned;
+  } catch (error) {
+    console.error('❌ Erreur dans isJudgeAssignedToCategory:', error);
+    throw error;
+  }
+}
+}
+
+export default Judge;

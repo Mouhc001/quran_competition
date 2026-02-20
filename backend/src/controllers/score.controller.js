@@ -1,4 +1,4 @@
-const Score = require('../models/Score.model');
+import Score from '../models/Score.model.js';
 
 // Helper function pour convertir les nombres
 const convertNumbers = (scores) => {
@@ -22,7 +22,7 @@ const convertNumbers = (scores) => {
   }));
 };
 
-exports.submitScore = async (req, res) => {
+export const submitScore = async (req, res) => {
   try {
     const { candidateId, roundId } = req.params;
     const { questions } = req.body;
@@ -58,7 +58,7 @@ exports.submitScore = async (req, res) => {
   }
 };
 
-exports.getCandidateScores = async (req, res) => {
+export const getCandidateScores = async (req, res) => {
   try {
     const { candidateId, roundId } = req.params;
     
@@ -77,7 +77,7 @@ exports.getCandidateScores = async (req, res) => {
   }
 };
 
-exports.getRoundResults = async (req, res) => {
+export const getRoundResults = async (req, res) => {
   try {
     const { roundId } = req.params;
     
@@ -102,7 +102,7 @@ exports.getRoundResults = async (req, res) => {
   }
 };
 
-exports.getScoresByRoundCategory = async (req, res) => {
+export const getScoresByRoundCategory = async (req, res) => {
   try {
     const { roundId, categoryId } = req.params;
     
@@ -125,7 +125,7 @@ exports.getScoresByRoundCategory = async (req, res) => {
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 };
-exports.getScoreStatistics = async (req, res) => {
+export const getScoreStatistics = async (req, res) => {
   try {
     const { roundId, categoryId } = req.params;
     
@@ -177,7 +177,7 @@ exports.getScoreStatistics = async (req, res) => {
   }
 };
 
-exports.getScoresByQuestion = async (req, res) => {
+export const getScoresByQuestion = async (req, res) => {
   try {
     const { roundId, categoryId } = req.params;
     
@@ -196,7 +196,7 @@ exports.getScoresByQuestion = async (req, res) => {
   }
 };
 
-exports.getCandidateScoreSummary = async (req, res) => {
+export const getCandidateScoreSummary = async (req, res) => {
   try {
     const { candidateId, roundId } = req.params;
     

@@ -1,7 +1,7 @@
-const express = require('express');
+import express from 'express';
 const router = express.Router();
-const QualificationController = require('../controllers/qualification.controller');
-const { authenticateAdmin } = require('../middleware/auth.middleware');
+import QualificationController from '../controllers/qualification.controller.js';
+import { authenticateAdmin } from '../middleware/auth.middleware.js';
 
 // Qualification des candidats
 router.post('/candidates/:candidateId/qualify', authenticateAdmin, QualificationController.qualifyCandidate);
@@ -67,4 +67,5 @@ router.post('/rounds/:roundId/qualify-batch', authenticateAdmin, async (req, res
 // Mettre à jour le statut d'un candidat (avec gestion des clones)
 router.put('/candidates/:candidateId/status', authenticateAdmin, QualificationController.updateCandidateStatus);
 
-module.exports = router;
+
+export default router;

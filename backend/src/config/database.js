@@ -1,9 +1,12 @@
-const { Pool } = require('pg');
-require('dotenv').config();
+import pkg from 'pg';
+const { Pool } = pkg;
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false } // obligatoire pour Neon
+  ssl: { rejectUnauthorized: false }
 });
 
 // Test de connexion immédiat
@@ -12,9 +15,5 @@ pool.connect()
   .catch(err => console.error('❌ Erreur de connexion PostgreSQL:', err.message));
 
 // Fonction pour exécuter des requêtes
-const query = (text, params) => pool.query(text, params);
-
-module.exports = {
-  query,
-  pool
-};
+export const query = (text, params) => pool.query(text, params);
+export default pool;

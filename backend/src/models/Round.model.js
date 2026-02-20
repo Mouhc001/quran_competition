@@ -1,5 +1,5 @@
 // backend/src/models/Round.model.js
-const pool = require('../config/database');
+import pool from '../config/database.js';
 
 class Round {
   static async create(data) {
@@ -355,4 +355,4 @@ static async findPreviousRound(currentRoundId) {
   }
 }
 }
-module.exports = Round;
+export default Round;

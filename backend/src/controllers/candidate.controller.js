@@ -1,8 +1,9 @@
-const pool = require('../config/database');
+import pool from '../config/database.js';
+import Round from '../models/Round.model.js';
+import Candidate from '../models/Candidate.model.js';
 
-// backend/src/controllers/candidate.controller.js - AJOUTEZ ces méthodes :
-// Dans candidate.controller.js, modifiez qualifyCandidateAuto
-exports.qualifyCandidateAuto = async (req, res) => {
+// qualifyCandidateAuto
+export const qualifyCandidateAuto = async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -32,15 +33,15 @@ exports.qualifyCandidateAuto = async (req, res) => {
       order_index: candidate.current_round_order
     });
     
-    // 2. Appeler Round.findNextRound
-    console.log('🔍 [qualifyCandidateAuto] Appel Round.findNextRound avec:', candidate.round_id);
+    // 2. Trouver le prochain tour
+    const nextRoundQuery = await pool.query(`
+      SELECT * FROM rounds 
+      WHERE order_index = $1
+    `, [candidate.current_round_order + 1]);
     
-    // IMPORTANT: Vérifiez l'import de Round
-    const Round = require('../models/Round.model');
+    const nextRound = nextRoundQuery.rows[0];
     
-    const nextRound = await Round.findNextRound(candidate.round_id);
-    
-    console.log('📊 [qualifyCandidateAuto] Résultat findNextRound:', {
+    console.log('📊 [qualifyCandidateAuto] Résultat:', {
       trouvé: !!nextRound,
       nextRound: nextRound ? {
         id: nextRound.id,
@@ -62,7 +63,35 @@ exports.qualifyCandidateAuto = async (req, res) => {
       });
     }
     
-    // ... reste du code ...
+    // 3. Créer un clone du candidat pour le prochain tour
+    const cloneResult = await pool.query(
+      `INSERT INTO candidates (
+        registration_number, name, birth_date, phone, email,
+        category_id, round_id, notes, status, is_original,
+        original_candidate_id, created_at
+      ) SELECT 
+        registration_number || '-R' || $1, name, birth_date, phone, email,
+        category_id, $2, notes, 'active', false, $3, NOW()
+      FROM candidates WHERE id = $3
+      RETURNING *`,
+      [nextRound.order_index, nextRound.id, id]
+    );
+    
+    // 4. Marquer l'original comme qualifié
+    await pool.query(
+      `UPDATE candidates SET status = 'qualified' WHERE id = $1`,
+      [id]
+    );
+    
+    res.json({
+      success: true,
+      message: `Candidat qualifié pour le tour ${nextRound.name}`,
+      data: {
+        original: { ...candidate, status: 'qualified' },
+        clone: cloneResult.rows[0],
+        next_round: nextRound
+      }
+    });
     
   } catch (error) {
     console.error('❌ [qualifyCandidateAuto] Erreur:', error);
@@ -74,7 +103,8 @@ exports.qualifyCandidateAuto = async (req, res) => {
   }
 };
 
-exports.qualifyCandidatesBatchAuto = async (req, res) => {
+// qualifyCandidatesBatchAuto
+export const qualifyCandidatesBatchAuto = async (req, res) => {
   try {
     const { candidateIds } = req.body;
     
@@ -92,8 +122,12 @@ exports.qualifyCandidatesBatchAuto = async (req, res) => {
     
     for (const candidateId of candidateIds) {
       try {
-        // Utiliser la même logique que qualifyCandidateAuto
-        const candidate = await Candidate.findById(candidateId);
+        const candidateQuery = await pool.query(
+          'SELECT * FROM candidates WHERE id = $1',
+          [candidateId]
+        );
+        
+        const candidate = candidateQuery.rows[0];
         
         if (!candidate) {
           errors.push({ candidateId, error: 'Candidat non trouvé' });
@@ -105,37 +139,38 @@ exports.qualifyCandidatesBatchAuto = async (req, res) => {
           continue;
         }
         
-        // Trouver le prochain tour
-        const nextRoundResult = await pool.query(`
-          SELECT r.* FROM rounds r 
-          WHERE r.order_index = (
-            SELECT order_index + 1 
-            FROM rounds 
-            WHERE id = $1
-          )
-        `, [candidate.round_id]);
+        const roundQuery = await pool.query(
+          `SELECT r.* FROM rounds r 
+           WHERE r.order_index = (
+             SELECT order_index + 1 
+             FROM rounds 
+             WHERE id = $1
+           )`,
+          [candidate.round_id]
+        );
         
-        const nextRound = nextRoundResult.rows[0];
+        const nextRound = roundQuery.rows[0];
         
         if (!nextRound) {
           errors.push({ candidateId, error: 'Aucun tour suivant' });
           continue;
         }
         
-        // Qualifier le candidat
         await pool.query(
-          `UPDATE candidates 
-           SET round_id = $1, status = 'active', updated_at = CURRENT_TIMESTAMP
-           WHERE id = $2`,
-          [nextRound.id, candidateId]
+          `INSERT INTO candidates (
+            registration_number, name, birth_date, phone, email,
+            category_id, round_id, notes, status, is_original,
+            original_candidate_id
+          ) SELECT 
+            registration_number || '-R' || $1, name, birth_date, phone, email,
+            category_id, $2, notes, 'active', false, $3
+          FROM candidates WHERE id = $3`,
+          [nextRound.order_index, nextRound.id, candidateId]
         );
         
-        // Marquer comme qualifié dans l'ancien tour
         await pool.query(
-          `UPDATE candidates 
-           SET status = 'qualified' 
-           WHERE id = $1 AND round_id = $2`,
-          [candidateId, candidate.round_id]
+          `UPDATE candidates SET status = 'qualified' WHERE id = $1`,
+          [candidateId]
         );
         
         results.push({
@@ -168,11 +203,11 @@ exports.qualifyCandidatesBatchAuto = async (req, res) => {
   }
 };
 
-exports.createCandidate = async (req, res) => {
+// createCandidate
+export const createCandidate = async (req, res) => {
   try {
     const { name, birth_date, phone, email, category_id, notes, status } = req.body;
     
-    // 1. Trouver automatiquement le premier tour (order_index = 1)
     const firstRoundResult = await pool.query(
       `SELECT id FROM rounds WHERE order_index = 1 ORDER BY order_index ASC LIMIT 1`
     );
@@ -185,11 +220,8 @@ exports.createCandidate = async (req, res) => {
     }
     
     const firstRoundId = firstRoundResult.rows[0].id;
-    
-    // 2. Générer un numéro d'inscription automatique
     const registrationNumber = `CAN${String(Math.floor(Math.random() * 999) + 1).padStart(3, '0')}`;
     
-    // 3. Créer le candidat
     const query = `
       INSERT INTO candidates (
         registration_number,
@@ -213,7 +245,7 @@ exports.createCandidate = async (req, res) => {
       phone || null,
       email || null,
       category_id,
-      firstRoundId, // Tour automatique
+      firstRoundId,
       notes || null,
       status || 'active'
     ];
@@ -221,7 +253,6 @@ exports.createCandidate = async (req, res) => {
     const result = await pool.query(query, values);
     const candidate = result.rows[0];
     
-    // Récupérer les détails du tour pour la réponse
     const roundQuery = await pool.query(
       `SELECT name, order_index FROM rounds WHERE id = $1`,
       [firstRoundId]

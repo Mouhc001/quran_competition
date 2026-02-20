@@ -1,8 +1,9 @@
-const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
-const Admin = require('../models/Admin.model');
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import pool from '../config/database.js';
+import Admin from '../models/Admin.model.js';
 
-exports.login = async (req, res) => {
+export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -61,7 +62,7 @@ exports.login = async (req, res) => {
   }
 };
 
-exports.register = async (req, res) => {
+export const register = async (req, res) => {
   try {
     const { email, password, name } = req.body;
 
@@ -110,7 +111,7 @@ exports.register = async (req, res) => {
   }
 };
 
-exports.logout = async (req, res) => {
+export const logout = async (req, res) => {
   try {
     res.json({ 
       success: true,
@@ -125,7 +126,7 @@ exports.logout = async (req, res) => {
   }
 };
 
-exports.getCurrentUser = async (req, res) => {
+export const getCurrentUser = async (req, res) => {
   try {
     const admin = await Admin.findById(req.user.id).select('-password');
     
@@ -149,7 +150,7 @@ exports.getCurrentUser = async (req, res) => {
   }
 };
 
-exports.refreshToken = async (req, res) => {
+export const refreshToken = async (req, res) => {
   try {
     const { token } = req.body;
 

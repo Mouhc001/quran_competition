@@ -1,9 +1,9 @@
-const express = require('express');
+import express from 'express';
 const router = express.Router();
-const Candidate = require('../models/Candidate.model');
-const candidateController = require('../controllers/candidate.controller');
-const { authenticateAdmin } = require('../middleware/auth.middleware'); 
-const pool = require('../config/database');
+import Candidate from '../models/Candidate.model.js';
+import CandidateController from '../controllers/candidate.controller.js';
+import { authenticateAdmin } from '../middleware/auth.middleware.js';
+import pool from '../config/database.js';
 
 // GET /api/candidates - Liste tous les candidats
 router.get('/', async (req, res) => {
@@ -511,4 +511,4 @@ router.post('/qualify-batch', authenticateAdmin, async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

@@ -1,4 +1,4 @@
-const { query } = require('../config/database');
+import { query } from '../config/database.js';
 
 class Admin {
   static async findByEmail(email) {
@@ -44,4 +44,4 @@ class Admin {
   }
 }
 
-module.exports = Admin;
+export default Admin;

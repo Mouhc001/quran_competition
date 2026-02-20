@@ -4,19 +4,33 @@ import bodyParser from 'body-parser';
 import { Pool } from 'pg';
 import bcrypt from 'bcrypt';
 import dotenv from 'dotenv';
-import adminRoutes from './src/routes/admin.routes.js'; 
+import adminRoutes from './src/routes/admin.routes.js';
+import judgeRoutes from './src/routes/judge.routes.js';
+import qualificationRoutes from './src/routes/qualification.routes.js';
+import scoreRoutes from './src/routes/score.routes.js';
+import judgeAssignmentRoutes from './src/routes/judgeAssignment.routes.js';
+
+console.log('1. Démarrage...');
+
+console.log('adminRoutes:', adminRoutes);
 
 dotenv.config();
 
 import authRoutes from './src/routes/auth.routes.js';
 
 const app = express();
+console.log('2. App créée');
+
 const PORT = process.env.PORT || 5000;
 
 // ✅ Configuration CORS complète
 const allowedOrigins = [
   'http://localhost:3000',           // développement local
-  'https://quran-competition-nine.vercel.app'      // remplace par ton URL Vercel
+  'https://quran-competition-nine.vercel.app',     // remplace par ton URL Vercel
+  'https://quran-competition-front.vercel.app',
+  'https://quran-competition-front-ktd8m8p5o-mouhc001s-projects.vercel.app',
+  'https://vercel.com/mouhc001s-projects/quran-competition-front/Br3s7cYJPeCv5EX9WSVxqmKKiwqm'
+
   
 ];
 
@@ -75,11 +89,15 @@ async function createAdminIfNone() {
 app.get('/', (req, res) => res.send('API is running'));
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/judges', judgeRoutes);
+app.use('/api/qualification', qualificationRoutes);
+app.use('/api/scores', scoreRoutes);
+app.use('/api/admin/judge-assignments', judgeAssignmentRoutes);
 
 // Lancement serveur
 (async () => {
   await createAdminIfNone();
-  app.listen(PORT, () => {
+  app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on port ${PORT}`);
   });
 })();
